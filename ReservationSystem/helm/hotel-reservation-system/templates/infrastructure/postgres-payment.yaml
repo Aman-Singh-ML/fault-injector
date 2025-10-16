@@ -1,0 +1,177 @@
+{{- if .Values.postgresPayment.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.postgresPayment.name }}-secret
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresPayment.name "context" .) | nindent 4 }}
+type: Opaque
+data:
+  POSTGRES_DB: {{ .Values.postgresPayment.database.name | b64enc }}
+  POSTGRES_USER: {{ .Values.postgresPayment.database.user | b64enc }}
+  POSTGRES_PASSWORD: {{ .Values.postgresPayment.database.password | b64enc }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.postgresPayment.name }}-init
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresPayment.name "context" .) | nindent 4 }}
+data:
+  init-payment-db.sql: |
+    -- Create payments table for Payment Service
+    CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        booking_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL,
+        currency VARCHAR(10) DEFAULT 'USD',
+        status VARCHAR(50) DEFAULT 'PENDING',
+        payment_method VARCHAR(50) NOT NULL,
+        transaction_id VARCHAR(255) UNIQUE,
+        otp_code VARCHAR(10),
+        otp_expires_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Create payment_logs table for audit trail
+    CREATE TABLE IF NOT EXISTS payment_logs (
+        id SERIAL PRIMARY KEY,
+        payment_id INTEGER NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (payment_id) REFERENCES payments(id)
+    );
+---
+{{- if .Values.postgresPayment.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.postgresPayment.name }}-pvc
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresPayment.name "context" .) | nindent 4 }}
+spec:
+  accessModes:
+    {{- range .Values.postgresPayment.persistence.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.postgresPayment.persistence.storageClass }}
+  {{- if (eq "-" .Values.postgresPayment.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.postgresPayment.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresPayment.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.postgresPayment.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresPayment.name "context" .) | nindent 4 }}
+spec:
+  serviceName: {{ .Values.postgresPayment.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresPayment.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresPayment.name "context" .) | nindent 8 }}
+    spec:
+      {{- include "hotel-reservation.securityContext" .Values.postgresPayment.securityContext | nindent 6 }}
+      {{- if .Values.postgresPayment.persistence.enabled }}
+      initContainers:
+      - name: fix-permissions
+        image: busybox:1.35
+        command: ['sh', '-c', 'chown -R 999:999 /var/lib/postgresql/data && chmod -R 755 /var/lib/postgresql/data']
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+          subPath: postgres
+        securityContext:
+          runAsUser: 0
+      {{- end }}
+      containers:
+      - name: postgres
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.postgresPayment.image.repository "tag" .Values.postgresPayment.image.tag) }}
+        imagePullPolicy: {{ .Values.postgresPayment.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.postgresPayment.service.targetPort }}
+          name: postgres
+        envFrom:
+        - secretRef:
+            name: {{ .Values.postgresPayment.name }}-secret
+        {{- include "hotel-reservation.resources" .Values.postgresPayment.resources | nindent 8 }}
+        volumeMounts:
+        {{- if .Values.postgresPayment.persistence.enabled }}
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+          subPath: postgres
+        {{- end }}
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U {{ .Values.postgresPayment.database.user }} -d {{ .Values.postgresPayment.database.name }} -h 127.0.0.1 -p {{ .Values.postgresPayment.service.targetPort }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U {{ .Values.postgresPayment.database.user }} -d {{ .Values.postgresPayment.database.name }} -h 127.0.0.1 -p {{ .Values.postgresPayment.service.targetPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      {{- if .Values.postgresPayment.persistence.enabled }}
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: {{ .Values.postgresPayment.name }}-pvc
+      {{- else }}
+      - name: postgres-data
+        emptyDir: {}
+      {{- end }}
+      - name: init-scripts
+        configMap:
+          name: {{ .Values.postgresPayment.name }}-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresPayment.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresPayment.name "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.postgresPayment.service.type }}
+  ports:
+  - port: {{ .Values.postgresPayment.service.port }}
+    targetPort: {{ .Values.postgresPayment.service.targetPort }}
+    protocol: TCP
+    name: postgres
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresPayment.name "context" .) | nindent 4 }}
+{{- end }}

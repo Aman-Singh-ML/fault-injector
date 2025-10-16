@@ -1,0 +1,190 @@
+{{- if .Values.postgresBooking.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.postgresBooking.name }}-secret
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresBooking.name "context" .) | nindent 4 }}
+type: Opaque
+data:
+  POSTGRES_DB: {{ .Values.postgresBooking.database.name | b64enc }}
+  POSTGRES_USER: {{ .Values.postgresBooking.database.user | b64enc }}
+  POSTGRES_PASSWORD: {{ .Values.postgresBooking.database.password | b64enc }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.postgresBooking.name }}-init
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresBooking.name "context" .) | nindent 4 }}
+data:
+  init-booking-db.sql: |
+    -- Create bookings table for Booking Service
+    CREATE TABLE IF NOT EXISTS bookings (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        hotel_id VARCHAR(100) NOT NULL,
+        hotel_name VARCHAR(255) NOT NULL,
+        check_in_date DATE NOT NULL,
+        check_out_date DATE NOT NULL,
+        rooms INTEGER NOT NULL DEFAULT 1,
+        adults INTEGER NOT NULL DEFAULT 1,
+        children INTEGER NOT NULL DEFAULT 0,
+        total_price DECIMAL(10, 2) NOT NULL,
+        status VARCHAR(50) DEFAULT 'PENDING',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Create availability table
+    CREATE TABLE IF NOT EXISTS availability (
+        id SERIAL PRIMARY KEY,
+        hotel_id VARCHAR(100) NOT NULL,
+        date DATE NOT NULL,
+        available_rooms INTEGER NOT NULL DEFAULT 0,
+        total_rooms INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(hotel_id, date)
+    );
+
+    -- Insert sample availability data
+    INSERT INTO availability (hotel_id, date, available_rooms, total_rooms) VALUES
+    ('hotel_001', CURRENT_DATE + INTERVAL '1 day', 10, 20),
+    ('hotel_001', CURRENT_DATE + INTERVAL '2 days', 15, 20),
+    ('hotel_001', CURRENT_DATE + INTERVAL '3 days', 8, 20),
+    ('hotel_002', CURRENT_DATE + INTERVAL '1 day', 5, 15),
+    ('hotel_002', CURRENT_DATE + INTERVAL '2 days', 12, 15),
+    ('hotel_002', CURRENT_DATE + INTERVAL '3 days', 7, 15)
+    ON CONFLICT (hotel_id, date) DO NOTHING;
+---
+{{- if .Values.postgresBooking.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.postgresBooking.name }}-pvc
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresBooking.name "context" .) | nindent 4 }}
+spec:
+  accessModes:
+    {{- range .Values.postgresBooking.persistence.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.postgresBooking.persistence.storageClass }}
+  {{- if (eq "-" .Values.postgresBooking.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.postgresBooking.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresBooking.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.postgresBooking.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresBooking.name "context" .) | nindent 4 }}
+spec:
+  serviceName: {{ .Values.postgresBooking.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresBooking.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresBooking.name "context" .) | nindent 8 }}
+    spec:
+      {{- include "hotel-reservation.securityContext" .Values.postgresBooking.securityContext | nindent 6 }}
+      {{- if .Values.postgresBooking.persistence.enabled }}
+      initContainers:
+      - name: fix-permissions
+        image: busybox:1.35
+        command: ['sh', '-c', 'chown -R 999:999 /var/lib/postgresql/data && chmod -R 755 /var/lib/postgresql/data']
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+          subPath: postgres
+        securityContext:
+          runAsUser: 0
+      {{- end }}
+      containers:
+      - name: postgres
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.postgresBooking.image.repository "tag" .Values.postgresBooking.image.tag) }}
+        imagePullPolicy: {{ .Values.postgresBooking.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.postgresBooking.service.targetPort }}
+          name: postgres
+        envFrom:
+        - secretRef:
+            name: {{ .Values.postgresBooking.name }}-secret
+        {{- include "hotel-reservation.resources" .Values.postgresBooking.resources | nindent 8 }}
+        volumeMounts:
+        {{- if .Values.postgresBooking.persistence.enabled }}
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+          subPath: postgres
+        {{- end }}
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U {{ .Values.postgresBooking.database.user }} -d {{ .Values.postgresBooking.database.name }} -h 127.0.0.1 -p {{ .Values.postgresBooking.service.targetPort }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U {{ .Values.postgresBooking.database.user }} -d {{ .Values.postgresBooking.database.name }} -h 127.0.0.1 -p {{ .Values.postgresBooking.service.targetPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      {{- if .Values.postgresBooking.persistence.enabled }}
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: {{ .Values.postgresBooking.name }}-pvc
+      {{- else }}
+      - name: postgres-data
+        emptyDir: {}
+      {{- end }}
+      - name: init-scripts
+        configMap:
+          name: {{ .Values.postgresBooking.name }}-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresBooking.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresBooking.name "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.postgresBooking.service.type }}
+  ports:
+  - port: {{ .Values.postgresBooking.service.port }}
+    targetPort: {{ .Values.postgresBooking.service.targetPort }}
+    protocol: TCP
+    name: postgres
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresBooking.name "context" .) | nindent 4 }}
+{{- end }}

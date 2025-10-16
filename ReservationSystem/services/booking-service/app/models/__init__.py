@@ -1,0 +1,2 @@
+# Booking service models
+

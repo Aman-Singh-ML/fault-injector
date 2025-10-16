@@ -1,0 +1,172 @@
+{{- if .Values.postgresAuth.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.postgresAuth.name }}-secret
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresAuth.name "context" .) | nindent 4 }}
+type: Opaque
+data:
+  POSTGRES_DB: {{ .Values.postgresAuth.database.name | b64enc }}
+  POSTGRES_USER: {{ .Values.postgresAuth.database.user | b64enc }}
+  POSTGRES_PASSWORD: {{ .Values.postgresAuth.database.password | b64enc }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.postgresAuth.name }}-init
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresAuth.name "context" .) | nindent 4 }}
+data:
+  init-auth-db.sql: |
+    -- Create users table for Auth Service
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        first_name VARCHAR(100) NOT NULL,
+        last_name VARCHAR(100) NOT NULL,
+        phone_number VARCHAR(20),
+        role VARCHAR(50) DEFAULT 'CUSTOMER',
+        enabled BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Insert default users
+    INSERT INTO users (email, password, first_name, last_name, role) VALUES
+    ('admin@hotel.com', '$2b$10$Cwk7rDfu0Tfml3C9RIqCpeeL9Qg57CVwfSDhk20xxri8QdxWmupGG', 'Admin', 'User', 'ADMIN'),
+    ('test@hotel.com', '$2b$10$WbbilC0KDnsJJRqVnk59F.SVu0Iy3nq0aDuKlqlaw/ODOVKuup/kS', 'Test', 'User', 'CUSTOMER'),
+    ('a@a.com', '$2b$10$W9YyIgWhJETiPGwf1kFgwOA3h1hWaDYdn3sTZsA08/uGx67VOnnhq', 'A', 'User', 'CUSTOMER')
+    ON CONFLICT (email) DO NOTHING;
+---
+{{- if .Values.postgresAuth.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.postgresAuth.name }}-pvc
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresAuth.name "context" .) | nindent 4 }}
+spec:
+  accessModes:
+    {{- range .Values.postgresAuth.persistence.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.postgresAuth.persistence.storageClass }}
+  {{- if (eq "-" .Values.postgresAuth.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.postgresAuth.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.postgresAuth.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.postgresAuth.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresAuth.name "context" .) | nindent 4 }}
+spec:
+  serviceName: {{ .Values.postgresAuth.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresAuth.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresAuth.name "context" .) | nindent 8 }}
+    spec:
+      {{- include "hotel-reservation.securityContext" .Values.postgresAuth.securityContext | nindent 6 }}
+      {{- if .Values.postgresAuth.persistence.enabled }}
+      initContainers:
+      - name: fix-permissions
+        image: busybox:1.35
+        command: ['sh', '-c', 'chown -R 999:999 /var/lib/postgresql/data && chmod -R 755 /var/lib/postgresql/data']
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+          subPath: postgres
+        securityContext:
+          runAsUser: 0
+      {{- end }}
+      containers:
+      - name: postgres
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.postgresAuth.image.repository "tag" .Values.postgresAuth.image.tag) }}
+        imagePullPolicy: {{ .Values.postgresAuth.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.postgresAuth.service.targetPort }}
+          name: postgres
+        envFrom:
+        - secretRef:
+            name: {{ .Values.postgresAuth.name }}-secret
+        {{- include "hotel-reservation.resources" .Values.postgresAuth.resources | nindent 8 }}
+        volumeMounts:
+        {{- if .Values.postgresAuth.persistence.enabled }}
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+          subPath: postgres
+        {{- end }}
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U {{ .Values.postgresAuth.database.user }} -d {{ .Values.postgresAuth.database.name }} -h 127.0.0.1 -p {{ .Values.postgresAuth.service.targetPort }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U {{ .Values.postgresAuth.database.user }} -d {{ .Values.postgresAuth.database.name }} -h 127.0.0.1 -p {{ .Values.postgresAuth.service.targetPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      {{- if .Values.postgresAuth.persistence.enabled }}
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: {{ .Values.postgresAuth.name }}-pvc
+      {{- else }}
+      - name: postgres-data
+        emptyDir: {}
+      {{- end }}
+      - name: init-scripts
+        configMap:
+          name: {{ .Values.postgresAuth.name }}-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.postgresAuth.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.postgresAuth.name "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.postgresAuth.service.type }}
+  ports:
+  - port: {{ .Values.postgresAuth.service.port }}
+    targetPort: {{ .Values.postgresAuth.service.targetPort }}
+    protocol: TCP
+    name: postgres
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.postgresAuth.name "context" .) | nindent 4 }}
+{{- end }}

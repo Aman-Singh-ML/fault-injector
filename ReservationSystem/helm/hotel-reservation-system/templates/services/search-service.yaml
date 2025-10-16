@@ -1,0 +1,119 @@
+{{- if .Values.searchService.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.searchService.name }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.searchService.name "context" .) | nindent 4 }}
+data:
+  # Database configuration
+  MONGO_URI: {{ include "hotel-reservation.mongoUrl" (dict "host" .Values.mongodb.name "port" .Values.mongodb.service.port "database" .Values.mongodb.database.name "user" .Values.mongodb.database.user "password" .Values.mongodb.database.password) | quote }}
+  MONGO_DATABASE: {{ .Values.mongodb.database.name | quote }}
+  
+  # Redis configuration
+  REDIS_HOST: {{ .Values.redis.name | quote }}
+  REDIS_PORT: {{ .Values.redis.service.port | quote }}
+  REDIS_URL: {{ include "hotel-reservation.redisUrl" (dict "host" .Values.redis.name "port" .Values.redis.service.port) | quote }}
+  
+  # Application configuration
+  {{- range $key, $value := .Values.searchService.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.searchService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.searchService.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.searchService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.searchService.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.searchService.name "context" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "hotel-reservation.envVars" (dict "serviceName" .Values.searchService.name "context" .) | sha256sum }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- include "hotel-reservation.securityContext" .Values.global.securityContext | nindent 6 }}
+      initContainers:
+      - name: wait-for-mongodb
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.mongodb.name }} {{ .Values.mongodb.service.port }}; do
+            echo "Waiting for MongoDB to be ready..."
+            sleep 2
+          done
+          echo "MongoDB is ready!"
+      - name: wait-for-redis
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.redis.name }} {{ .Values.redis.service.port }}; do
+            echo "Waiting for Redis to be ready..."
+            sleep 2
+          done
+          echo "Redis is ready!"
+      containers:
+      - name: {{ .Values.searchService.name }}
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.searchService.image.repository "tag" .Values.searchService.image.tag) }}
+        imagePullPolicy: {{ .Values.searchService.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.searchService.service.targetPort }}
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: {{ .Values.searchService.name }}-config
+        {{- include "hotel-reservation.resources" .Values.searchService.resources | nindent 8 }}
+        {{- if .Values.searchService.livenessProbe }}
+        livenessProbe:
+          {{- toYaml .Values.searchService.livenessProbe | nindent 10 }}
+        {{- end }}
+        {{- if .Values.searchService.readinessProbe }}
+        readinessProbe:
+          {{- toYaml .Values.searchService.readinessProbe | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.searchService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.searchService.name "context" .) | nindent 4 }}
+  {{- if .Values.searchService.service.annotations }}
+  annotations:
+    {{- toYaml .Values.searchService.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.searchService.service.type }}
+  ports:
+  - port: {{ .Values.searchService.service.port }}
+    targetPort: {{ .Values.searchService.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.searchService.name "context" .) | nindent 4 }}
+{{- end }}

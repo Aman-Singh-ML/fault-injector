@@ -1,0 +1,108 @@
+{{- if .Values.authService.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.authService.name }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.authService.name "context" .) | nindent 4 }}
+data:
+  # Database configuration
+  SPRING_DATASOURCE_URL: {{ include "hotel-reservation.postgresUrl" (dict "host" .Values.postgresAuth.name "port" .Values.postgresAuth.service.port "database" .Values.postgresAuth.database.name "user" .Values.postgresAuth.database.user "password" .Values.postgresAuth.database.password) | quote }}
+  SPRING_DATASOURCE_USERNAME: {{ .Values.postgresAuth.database.user | quote }}
+  SPRING_DATASOURCE_PASSWORD: {{ .Values.postgresAuth.database.password | quote }}
+  SPRING_DATASOURCE_DRIVER_CLASS_NAME: "org.postgresql.Driver"
+  
+  # Application configuration
+  {{- range $key, $value := .Values.authService.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  
+  # Server configuration
+  SERVER_PORT: {{ .Values.authService.service.targetPort | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.authService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.authService.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.authService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.authService.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.authService.name "context" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "hotel-reservation.envVars" (dict "serviceName" .Values.authService.name "context" .) | sha256sum }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- include "hotel-reservation.securityContext" .Values.global.securityContext | nindent 6 }}
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.postgresAuth.name }} {{ .Values.postgresAuth.service.port }}; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready!"
+      containers:
+      - name: {{ .Values.authService.name }}
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.authService.image.repository "tag" .Values.authService.image.tag) }}
+        imagePullPolicy: {{ .Values.authService.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.authService.service.targetPort }}
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: {{ .Values.authService.name }}-config
+        {{- include "hotel-reservation.resources" .Values.authService.resources | nindent 8 }}
+        {{- if .Values.authService.livenessProbe }}
+        livenessProbe:
+          {{- toYaml .Values.authService.livenessProbe | nindent 10 }}
+        {{- end }}
+        {{- if .Values.authService.readinessProbe }}
+        readinessProbe:
+          {{- toYaml .Values.authService.readinessProbe | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.authService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.authService.name "context" .) | nindent 4 }}
+  {{- if .Values.authService.service.annotations }}
+  annotations:
+    {{- toYaml .Values.authService.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.authService.service.type }}
+  ports:
+  - port: {{ .Values.authService.service.port }}
+    targetPort: {{ .Values.authService.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.authService.name "context" .) | nindent 4 }}
+{{- end }}

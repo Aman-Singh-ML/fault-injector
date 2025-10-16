@@ -1,0 +1,194 @@
+{{- if .Values.rabbitmq.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.rabbitmq.name }}-secret
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 4 }}
+type: Opaque
+data:
+  {{- range $key, $value := .Values.rabbitmq.config }}
+  {{ $key }}: {{ $value | b64enc }}
+  {{- end }}
+---
+{{- if .Values.rabbitmq.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.rabbitmq.name }}-pvc
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 4 }}
+spec:
+  accessModes:
+    {{- range .Values.rabbitmq.persistence.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.rabbitmq.persistence.storageClass }}
+  {{- if (eq "-" .Values.rabbitmq.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.rabbitmq.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.rabbitmq.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.rabbitmq.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 4 }}
+spec:
+  serviceName: {{ .Values.rabbitmq.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 8 }}
+    spec:
+      {{- if .Values.rabbitmq.persistence.enabled }}
+      initContainers:
+      - name: fix-permissions
+        image: busybox:1.35
+        command: ['sh', '-c', 'chown -R 999:999 /var/lib/rabbitmq && chmod -R 755 /var/lib/rabbitmq']
+        volumeMounts:
+        - name: rabbitmq-data
+          mountPath: /var/lib/rabbitmq
+        securityContext:
+          runAsUser: 0
+      {{- end }}
+      containers:
+      - name: rabbitmq
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.rabbitmq.image.repository "tag" .Values.rabbitmq.image.tag) }}
+        imagePullPolicy: {{ .Values.rabbitmq.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.rabbitmq.service.amqpPort }}
+          name: amqp
+        - containerPort: {{ .Values.rabbitmq.service.managementPort }}
+          name: management
+        envFrom:
+        - secretRef:
+            name: {{ .Values.rabbitmq.name }}-secret
+        {{- include "hotel-reservation.resources" .Values.rabbitmq.resources | nindent 8 }}
+        volumeMounts:
+        {{- if .Values.rabbitmq.persistence.enabled }}
+        - name: rabbitmq-data
+          mountPath: /var/lib/rabbitmq
+        {{- end }}
+        livenessProbe:
+          exec:
+            command:
+            - rabbitmq-diagnostics
+            - -q
+            - ping
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          timeoutSeconds: 15
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - rabbitmq-diagnostics
+            - -q
+            - check_port_connectivity
+          initialDelaySeconds: 20
+          periodSeconds: 60
+          timeoutSeconds: 10
+          failureThreshold: 3
+      volumes:
+      {{- if .Values.rabbitmq.persistence.enabled }}
+      - name: rabbitmq-data
+        persistentVolumeClaim:
+          claimName: {{ .Values.rabbitmq.name }}-pvc
+      {{- else }}
+      - name: rabbitmq-data
+        emptyDir: {}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.rabbitmq.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.rabbitmq.service.type }}
+  ports:
+  - port: {{ .Values.rabbitmq.service.amqpPort }}
+    targetPort: {{ .Values.rabbitmq.service.amqpPort }}
+    protocol: TCP
+    name: amqp
+  - port: {{ .Values.rabbitmq.service.managementPort }}
+    targetPort: {{ .Values.rabbitmq.service.managementPort }}
+    protocol: TCP
+    name: management
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 4 }}
+---
+# Job to setup RabbitMQ queues
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.rabbitmq.name }}-queues-setup
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.rabbitmq.name "context" .) | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: rabbitmq-queues-setup
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.rabbitmq.image.repository "tag" .Values.rabbitmq.image.tag) }}
+        command:
+        - /bin/bash
+        - -c
+        - |
+          # Wait for RabbitMQ to be ready
+          echo "Waiting for RabbitMQ to be ready..."
+          until rabbitmq-diagnostics -q ping; do
+            echo "RabbitMQ not ready, waiting..."
+            sleep 5
+          done
+          
+          # Create queues
+          rabbitmqadmin declare queue name=booking_notifications durable=true
+          rabbitmqadmin declare queue name=payment_notifications durable=true
+          rabbitmqadmin declare queue name=user_notifications durable=true
+          
+          # Create exchanges
+          rabbitmqadmin declare exchange name=hotel.events type=topic durable=true
+          
+          # Bind queues to exchanges
+          rabbitmqadmin declare binding source=hotel.events destination=booking_notifications routing_key=booking.*
+          rabbitmqadmin declare binding source=hotel.events destination=payment_notifications routing_key=payment.*
+          rabbitmqadmin declare binding source=hotel.events destination=user_notifications routing_key=user.*
+          
+          # List queues to verify
+          rabbitmqadmin list queues
+          
+          echo "RabbitMQ queues setup completed successfully!"
+        envFrom:
+        - secretRef:
+            name: {{ .Values.rabbitmq.name }}-secret
+{{- end }}

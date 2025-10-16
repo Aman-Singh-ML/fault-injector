@@ -1,0 +1,122 @@
+{{- if .Values.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-gateway
+  namespace: {{ .Values.serviceMonitor.namespace | default .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.gateway.name }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+  endpoints:
+  - port: http
+    interval: {{ .Values.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-auth-service
+  namespace: {{ .Values.serviceMonitor.namespace | default .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.authService.name }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+  endpoints:
+  - port: http
+    interval: {{ .Values.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+    path: /actuator/prometheus
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-search-service
+  namespace: {{ .Values.serviceMonitor.namespace | default .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.searchService.name }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+  endpoints:
+  - port: http
+    interval: {{ .Values.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-booking-service
+  namespace: {{ .Values.serviceMonitor.namespace | default .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.bookingService.name }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+  endpoints:
+  - port: http
+    interval: {{ .Values.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-payment-service
+  namespace: {{ .Values.serviceMonitor.namespace | default .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.paymentService.name }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+  endpoints:
+  - port: http
+    interval: {{ .Values.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-notification-service
+  namespace: {{ .Values.serviceMonitor.namespace | default .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.notificationService.name }}
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.global.namespace }}
+  endpoints:
+  - port: http
+    interval: {{ .Values.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+    path: /metrics
+{{- end }}

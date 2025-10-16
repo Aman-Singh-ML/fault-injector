@@ -1,0 +1,764 @@
+# Global configuration
+global:
+  # Kubernetes namespace
+  namespace: hotel-reservation
+  
+  # Image registry and pull policy
+  imageRegistry: ""
+  imagePullSecrets: []
+  imagePullPolicy: Always
+  
+  # Storage configuration
+  storageClass: "managed-csi"
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+  
+  # Resource limits (can be overridden per service)
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# Environment configuration
+environment: development # development, staging, production
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  hosts:
+    - host: hotel-reservation.local
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: gateway
+          port: 9000
+        - path: /
+          pathType: Prefix
+          service: frontend
+          port: 3000
+  tls: []
+
+# Service Monitor for Prometheus
+serviceMonitor:
+  enabled: false
+  namespace: monitoring
+  interval: 30s
+  scrapeTimeout: 10s
+
+# Horizontal Pod Autoscaler
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Network Policies
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []
+
+#============================================================================
+# MICROSERVICES CONFIGURATION
+#============================================================================
+
+# Frontend Service (Next.js)
+frontend:
+  enabled: true
+  name: frontend
+  replicaCount: 1
+
+  image:
+    repository: amansingh2708/frontend
+    tag: latest
+    pullPolicy: Always
+
+  service:
+    type: NodePort
+    port: 3000
+    targetPort: 3000
+    nodePort: 30300
+    annotations: {}
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # Environment variables
+  env:
+    NODE_ENV: production
+    PORT: "3000"
+
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# API Gateway Service
+gateway:
+  enabled: true
+  name: gateway
+  replicaCount: 1
+  
+  image:
+    repository: amansingh2708/gateway
+    tag: latest
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 9000
+    targetPort: 9000
+    annotations: {}
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Environment variables
+  env:
+    NODE_ENV: production
+    PORT: "9000"
+    RATE_LIMIT_WINDOW_MS: "900000"
+    RATE_LIMIT_MAX_REQUESTS: "100"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 9000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 9000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Auth Service (Java/Spring Boot)
+authService:
+  enabled: true
+  name: auth-service
+  replicaCount: 1
+  
+  image:
+    repository: amansingh2708/auth-service
+    tag: latest
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    annotations: {}
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "300m"
+    limits:
+      memory: "1Gi"
+      cpu: "800m"
+  
+  # Environment variables
+  env:
+    SPRING_PROFILES_ACTIVE: kubernetes
+    JWT_SECRET: "mySecretKeyForJWTTokenGenerationAndValidation123456789"
+    JWT_EXPIRATION: "86400000"
+    SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+    SPRING_JPA_SHOW_SQL: "false"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Search Service (Go)
+searchService:
+  enabled: true
+  name: search-service
+  replicaCount: 1
+  
+  image:
+    repository: amansingh2708/search-service
+    tag: latest
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 8081
+    targetPort: 8081
+    annotations: {}
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Environment variables
+  env:
+    GIN_MODE: release
+    PORT: "8081"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8081
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8081
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Booking Service (Python/FastAPI)
+bookingService:
+  enabled: true
+  name: booking-service
+  replicaCount: 1
+  
+  image:
+    repository: amansingh2708/booking-service
+    tag: latest
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+    annotations: {}
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Environment variables
+  env:
+    PYTHONPATH: "/app"
+    PORT: "8000"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Payment Service (Go)
+paymentService:
+  enabled: true
+  name: payment-service
+  replicaCount: 1
+  
+  image:
+    repository: amansingh2708/payment-service
+    tag: latest
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 8082
+    targetPort: 8082
+    annotations: {}
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Environment variables
+  env:
+    GIN_MODE: release
+    PORT: "8082"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8082
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8082
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Notification Service (Python/FastAPI)
+notificationService:
+  enabled: true
+  name: notification-service
+  replicaCount: 1
+  
+  image:
+    repository: amansingh2708/notification-service
+    tag: latest
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 8083
+    targetPort: 8083
+    annotations: {}
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Environment variables
+  env:
+    PYTHONPATH: "/app"
+    PORT: "8083"
+    KAFKA_BOOTSTRAP_SERVERS: "hotel-reservation-kafka:9092"
+    KAFKA_TOPIC_BOOKING_EVENTS: "booking-events"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8083
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8083
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+#============================================================================
+# INFRASTRUCTURE CONFIGURATION
+#============================================================================
+
+# PostgreSQL for Auth Service
+postgresAuth:
+  enabled: true
+  name: postgres-auth
+
+  image:
+    repository: postgres
+    tag: "16"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5432
+    targetPort: 5432
+
+  # Database configuration
+  database:
+    name: auth_db
+    user: auth_user
+    password: auth_pass
+
+  # Storage configuration
+  persistence:
+    enabled: true
+    storageClass: "managed-csi"
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # Security context
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+
+# PostgreSQL for Booking Service
+postgresBooking:
+  enabled: true
+  name: postgres-booking
+
+  image:
+    repository: postgres
+    tag: "16"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5432
+    targetPort: 5432
+
+  # Database configuration
+  database:
+    name: booking_db
+    user: booking_user
+    password: booking_pass
+
+  # Storage configuration
+  persistence:
+    enabled: true
+    storageClass: "managed-csi"
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # Security context
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+
+# PostgreSQL for Payment Service
+postgresPayment:
+  enabled: true
+  name: postgres-payment
+
+  image:
+    repository: postgres
+    tag: "16"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5432
+    targetPort: 5432
+
+  # Database configuration
+  database:
+    name: payment_db
+    user: payment_user
+    password: payment_pass
+
+  # Storage configuration
+  persistence:
+    enabled: true
+    storageClass: "managed-csi"
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # Security context
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+
+# MongoDB for Search Service
+mongodb:
+  enabled: true
+  name: mongodb
+
+  image:
+    repository: mongo
+    tag: "7.0"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 27017
+    targetPort: 27017
+
+  # Database configuration
+  database:
+    name: search_db
+    user: search_user
+    password: search_pass
+
+  # Storage configuration
+  persistence:
+    enabled: true
+    storageClass: "managed-csi"
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "300m"
+    limits:
+      memory: "1Gi"
+      cpu: "800m"
+
+  # Security context
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+
+# Redis Cache
+redis:
+  enabled: true
+  name: redis
+
+  image:
+    repository: redis
+    tag: "7.2-alpine"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 6379
+    targetPort: 6379
+
+  # Storage configuration
+  persistence:
+    enabled: true
+    storageClass: "managed-csi"
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  # Redis configuration
+  config:
+    maxmemory: "200mb"
+    maxmemory-policy: "allkeys-lru"
+    save: "900 1 300 10 60 10000"
+
+
+# RabbitMQ Message Broker
+rabbitmq:
+  enabled: true
+  name: rabbitmq
+
+  image:
+    repository: rabbitmq
+    tag: "3.12-management-alpine"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    amqpPort: 5672
+    managementPort: 15672
+
+  # Storage configuration
+  persistence:
+    enabled: true
+    storageClass: "managed-csi"
+    size: 1Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # RabbitMQ configuration
+  config:
+    RABBITMQ_DEFAULT_USER: "admin"
+    RABBITMQ_DEFAULT_PASS: "admin123"
+    RABBITMQ_DEFAULT_VHOST: "/"
+
+kafka:
+  enabled: true
+
+  # Use a recent, non-legacy Bitnami image for better support
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/kafka
+    tag: "3.8.0-debian-12-r5"
+
+  # KRaft mode configuration
+  controller:
+    replicaCount: 1
+    persistence:
+      enabled: true
+      storageClass: "managed-csi"
+      size: 1Gi
+    resources:
+      limits:
+        memory: "1Gi"
+        cpu: "800m"
+      requests:
+        memory: "512Mi"
+        cpu: "300m"
+
+  broker:
+    replicaCount: 0 # Controllers will also be brokers
+
+  # Disable Zookeeper completely
+  zookeeper:
+    enabled: false
+
+  # Enable KRaft mode
+  kraft:
+    enabled: true
+    # Specify the process roles for the controller nodes
+    processRoles: "controller,broker"
+  # Listeners configuration
+  listeners:
+    # Internal listener for inter-broker and internal-client communication
+    client:
+      containerPort: 9092
+      protocol: PLAINTEXT
+      name: CLIENT
+
+    # External listener for outside clients
+    external:
+      containerPort: 9092 # Note: uses the same container port, but accessed via LoadBalancer port
+      protocol: PLAINTEXT
+      name: EXTERNAL
+
+  # Additional environment variables for Kafka config
+  extraEnvVars:
+    - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
+      value: "1"
+    - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+      value: "1"
+    - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
+      value: "1"
+    - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+      value: "true"
+    - name: KAFKA_CFG_LOG_RETENTION_HOURS
+      value: "168"
+    - name: KAFKA_CFG_NUM_PARTITIONS
+      value: "3"
+    - name: KAFKA_CFG_DEFAULT_REPLICATION_FACTOR
+      value: "1"
+    
+  # Enable dynamic updates to advertised.listeners based on the service's IP
+  # This is crucial for external connectivity in cloud environments
+  extraEnvVars:
+    - name: KAFKA_CFG_ADVERTISED_LISTENERS
+      value: "EXTERNAL://$(KAFKA_EXTERNAL_SERVICE_HOST):$(KAFKA_EXTERNAL_SERVICE_PORT),CLIENT://:9092"
+    - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+      value: "CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+    - name: KAFKA_CFG_LISTENERS
+      value: "CLIENT://:9092,EXTERNAL://:9092,CONTROLLER://:9093"
+    - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+      value: "CLIENT"
+    - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+      value: "CONTROLLER"

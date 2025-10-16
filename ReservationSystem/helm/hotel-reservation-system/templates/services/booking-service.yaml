@@ -1,0 +1,138 @@
+{{- if .Values.bookingService.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.bookingService.name }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.bookingService.name "context" .) | nindent 4 }}
+data:
+  # Database configuration
+  DATABASE_URL: {{ include "hotel-reservation.postgresPythonUrl" (dict "host" .Values.postgresBooking.name "port" .Values.postgresBooking.service.port "database" .Values.postgresBooking.database.name "user" .Values.postgresBooking.database.user "password" .Values.postgresBooking.database.password) | quote }}
+  DB_HOST: {{ .Values.postgresBooking.name | quote }}
+  DB_PORT: {{ .Values.postgresBooking.service.port | quote }}
+  DB_USER: {{ .Values.postgresBooking.database.user | quote }}
+  DB_PASSWORD: {{ .Values.postgresBooking.database.password | quote }}
+  DB_NAME: {{ .Values.postgresBooking.database.name | quote }}
+  
+  # Redis configuration
+  REDIS_HOST: {{ .Values.redis.name | quote }}
+  REDIS_PORT: {{ .Values.redis.service.port | quote }}
+  REDIS_URL: {{ include "hotel-reservation.redisUrl" (dict "host" .Values.redis.name "port" .Values.redis.service.port) | quote }}
+  
+  # Kafka configuration
+  KAFKA_BOOTSTRAP_SERVERS: {{ include "hotel-reservation.kafkaBootstrapServers" . | quote }}
+  KAFKA_TOPIC_BOOKING_EVENTS: "booking-events"
+  
+  # Application configuration
+  {{- range $key, $value := .Values.bookingService.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.bookingService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.bookingService.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.bookingService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.bookingService.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.bookingService.name "context" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "hotel-reservation.envVars" (dict "serviceName" .Values.bookingService.name "context" .) | sha256sum }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- include "hotel-reservation.securityContext" .Values.global.securityContext | nindent 6 }}
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.postgresBooking.name }} {{ .Values.postgresBooking.service.port }}; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready!"
+      - name: wait-for-redis
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.redis.name }} {{ .Values.redis.service.port }}; do
+            echo "Waiting for Redis to be ready..."
+            sleep 2
+          done
+          echo "Redis is ready!"
+      - name: wait-for-kafka
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z hotel-reservation-kafka 9092; do
+            echo "Waiting for Kafka to be ready..."
+            sleep 2
+          done
+          echo "Kafka is ready!"
+      containers:
+      - name: {{ .Values.bookingService.name }}
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.bookingService.image.repository "tag" .Values.bookingService.image.tag) }}
+        imagePullPolicy: {{ .Values.bookingService.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.bookingService.service.targetPort }}
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: {{ .Values.bookingService.name }}-config
+        {{- include "hotel-reservation.resources" .Values.bookingService.resources | nindent 8 }}
+        {{- if .Values.bookingService.livenessProbe }}
+        livenessProbe:
+          {{- toYaml .Values.bookingService.livenessProbe | nindent 10 }}
+        {{- end }}
+        {{- if .Values.bookingService.readinessProbe }}
+        readinessProbe:
+          {{- toYaml .Values.bookingService.readinessProbe | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.bookingService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.bookingService.name "context" .) | nindent 4 }}
+  {{- if .Values.bookingService.service.annotations }}
+  annotations:
+    {{- toYaml .Values.bookingService.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.bookingService.service.type }}
+  ports:
+  - port: {{ .Values.bookingService.service.port }}
+    targetPort: {{ .Values.bookingService.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.bookingService.name "context" .) | nindent 4 }}
+{{- end }}

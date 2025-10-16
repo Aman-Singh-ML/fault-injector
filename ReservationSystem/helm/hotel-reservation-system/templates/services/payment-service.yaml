@@ -1,0 +1,130 @@
+{{- if .Values.paymentService.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.paymentService.name }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.paymentService.name "context" .) | nindent 4 }}
+data:
+  # Database configuration
+  DATABASE_URL: {{ include "hotel-reservation.postgresUrl" (dict "host" .Values.postgresPayment.name "port" .Values.postgresPayment.service.port "database" .Values.postgresPayment.database.name "user" .Values.postgresPayment.database.user "password" .Values.postgresPayment.database.password) | quote }}
+  DB_HOST: {{ .Values.postgresPayment.name | quote }}
+  DB_PORT: {{ .Values.postgresPayment.service.port | quote }}
+  DB_USER: {{ .Values.postgresPayment.database.user | quote }}
+  DB_PASSWORD: {{ .Values.postgresPayment.database.password | quote }}
+  DB_NAME: {{ .Values.postgresPayment.database.name | quote }}
+  
+  # RabbitMQ configuration
+  RABBITMQ_URL: {{ include "hotel-reservation.rabbitmqUrl" (dict "host" .Values.rabbitmq.name "port" .Values.rabbitmq.service.amqpPort "user" .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER "password" .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS) | quote }}
+  RABBITMQ_HOST: {{ .Values.rabbitmq.name | quote }}
+  RABBITMQ_PORT: {{ .Values.rabbitmq.service.amqpPort | quote }}
+  RABBITMQ_USER: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
+  RABBITMQ_PASSWORD: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
+  
+  # Application configuration
+  {{- range $key, $value := .Values.paymentService.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.paymentService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.paymentService.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.paymentService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.paymentService.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.paymentService.name "context" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "hotel-reservation.envVars" (dict "serviceName" .Values.paymentService.name "context" .) | sha256sum }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- include "hotel-reservation.securityContext" .Values.global.securityContext | nindent 6 }}
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.postgresPayment.name }} {{ .Values.postgresPayment.service.port }}; do
+            echo "Waiting for PostgreSQL to be ready..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready!"
+      - name: wait-for-rabbitmq
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.rabbitmq.name }} {{ .Values.rabbitmq.service.amqpPort }}; do
+            echo "Waiting for RabbitMQ to be ready..."
+            sleep 2
+          done
+          echo "RabbitMQ is ready!"
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          value: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
+        - name: RABBITMQ_DEFAULT_PASS
+          value: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
+      containers:
+      - name: {{ .Values.paymentService.name }}
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.paymentService.image.repository "tag" .Values.paymentService.image.tag) }}
+        imagePullPolicy: {{ .Values.paymentService.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.paymentService.service.targetPort }}
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: {{ .Values.paymentService.name }}-config
+        {{- include "hotel-reservation.resources" .Values.paymentService.resources | nindent 8 }}
+        {{- if .Values.paymentService.livenessProbe }}
+        livenessProbe:
+          {{- toYaml .Values.paymentService.livenessProbe | nindent 10 }}
+        {{- end }}
+        {{- if .Values.paymentService.readinessProbe }}
+        readinessProbe:
+          {{- toYaml .Values.paymentService.readinessProbe | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.paymentService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.paymentService.name "context" .) | nindent 4 }}
+  {{- if .Values.paymentService.service.annotations }}
+  annotations:
+    {{- toYaml .Values.paymentService.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.paymentService.service.type }}
+  ports:
+  - port: {{ .Values.paymentService.service.port }}
+    targetPort: {{ .Values.paymentService.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.paymentService.name "context" .) | nindent 4 }}
+{{- end }}

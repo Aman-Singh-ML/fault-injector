@@ -1,0 +1,235 @@
+{{- if .Values.mongodb.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.mongodb.name }}-secret
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.mongodb.name "context" .) | nindent 4 }}
+type: Opaque
+data:
+  MONGO_INITDB_ROOT_USERNAME: {{ .Values.mongodb.database.user | b64enc }}
+  MONGO_INITDB_ROOT_PASSWORD: {{ .Values.mongodb.database.password | b64enc }}
+  MONGO_INITDB_DATABASE: {{ .Values.mongodb.database.name | b64enc }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.mongodb.name }}-init
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.mongodb.name "context" .) | nindent 4 }}
+data:
+  init-mongo.js: |
+    // Switch to the search database
+    db = db.getSiblingDB('{{ .Values.mongodb.database.name }}');
+
+    // Create user for the search service
+    db.createUser({
+      user: '{{ .Values.mongodb.database.user }}',
+      pwd: '{{ .Values.mongodb.database.password }}',
+      roles: [
+        {
+          role: 'readWrite',
+          db: '{{ .Values.mongodb.database.name }}'
+        }
+      ]
+    });
+
+    // Insert sample hotels data
+    db.hotels.insertMany([
+      {
+        _id: "hotel_001",
+        name: "Grand Plaza Hotel",
+        location: "New York",
+        city: "New York",
+        country: "USA",
+        address: "123 Broadway, New York, NY 10001",
+        rating: 4.5,
+        price_per_night: 250,
+        description: "Luxury hotel in the heart of Manhattan with stunning city views",
+        amenities: ["WiFi", "Pool", "Gym", "Restaurant", "Spa", "Business Center"],
+        images: [
+          "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800",
+          "https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?w=800"
+        ],
+        total_rooms: 20,
+        available_rooms: 15,
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        _id: "hotel_002",
+        name: "Seaside Resort",
+        location: "Miami",
+        city: "Miami",
+        country: "USA",
+        address: "456 Ocean Drive, Miami, FL 33139",
+        rating: 4.8,
+        price_per_night: 350,
+        description: "Beautiful beachfront resort with ocean views and luxury amenities",
+        amenities: ["WiFi", "Beach", "Pool", "Bar", "Water Sports", "Spa"],
+        images: [
+          "https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800",
+          "https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=800"
+        ],
+        total_rooms: 15,
+        available_rooms: 12,
+        created_at: new Date(),
+        updated_at: new Date()
+      },
+      {
+        _id: "hotel_003",
+        name: "Mountain View Lodge",
+        location: "Denver",
+        city: "Denver",
+        country: "USA",
+        address: "789 Mountain Road, Denver, CO 80202",
+        rating: 4.3,
+        price_per_night: 180,
+        description: "Cozy mountain lodge with breathtaking views and outdoor activities",
+        amenities: ["WiFi", "Fireplace", "Hiking", "Restaurant", "Parking"],
+        images: [
+          "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=800",
+          "https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=800"
+        ],
+        total_rooms: 25,
+        available_rooms: 20,
+        created_at: new Date(),
+        updated_at: new Date()
+      }
+    ]);
+
+    // Create indexes for better performance
+    db.hotels.createIndex({ "location": 1 });
+    db.hotels.createIndex({ "city": 1 });
+    db.hotels.createIndex({ "rating": -1 });
+    db.hotels.createIndex({ "price_per_night": 1 });
+    db.hotels.createIndex({ "name": "text", "description": "text" });
+---
+{{- if .Values.mongodb.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.mongodb.name }}-pvc
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.mongodb.name "context" .) | nindent 4 }}
+spec:
+  accessModes:
+    {{- range .Values.mongodb.persistence.accessModes }}
+    - {{ . }}
+    {{- end }}
+  {{- if .Values.mongodb.persistence.storageClass }}
+  {{- if (eq "-" .Values.mongodb.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.mongodb.persistence.storageClass }}
+  {{- end }}
+  {{- else if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mongodb.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.mongodb.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.mongodb.name "context" .) | nindent 4 }}
+spec:
+  serviceName: {{ .Values.mongodb.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.mongodb.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.mongodb.name "context" .) | nindent 8 }}
+    spec:
+      {{- include "hotel-reservation.securityContext" .Values.mongodb.securityContext | nindent 6 }}
+      {{- if .Values.mongodb.persistence.enabled }}
+      initContainers:
+      - name: fix-permissions
+        image: busybox:1.35
+        command: ['sh', '-c', 'chown -R 999:999 /data/db && chmod -R 755 /data/db']
+        volumeMounts:
+        - name: mongodb-data
+          mountPath: /data/db
+        securityContext:
+          runAsUser: 0
+      {{- end }}
+      containers:
+      - name: mongodb
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.mongodb.image.repository "tag" .Values.mongodb.image.tag) }}
+        imagePullPolicy: {{ .Values.mongodb.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.mongodb.service.targetPort }}
+          name: mongodb
+        envFrom:
+        - secretRef:
+            name: {{ .Values.mongodb.name }}-secret
+        {{- include "hotel-reservation.resources" .Values.mongodb.resources | nindent 8 }}
+        volumeMounts:
+        {{- if .Values.mongodb.persistence.enabled }}
+        - name: mongodb-data
+          mountPath: /data/db
+        {{- end }}
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        livenessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - mongosh
+            - --eval
+            - "db.adminCommand('ping')"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+      volumes:
+      {{- if .Values.mongodb.persistence.enabled }}
+      - name: mongodb-data
+        persistentVolumeClaim:
+          claimName: {{ .Values.mongodb.name }}-pvc
+      {{- else }}
+      - name: mongodb-data
+        emptyDir: {}
+      {{- end }}
+      - name: init-scripts
+        configMap:
+          name: {{ .Values.mongodb.name }}-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.mongodb.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.mongodb.name "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.mongodb.service.type }}
+  ports:
+  - port: {{ .Values.mongodb.service.port }}
+    targetPort: {{ .Values.mongodb.service.targetPort }}
+    protocol: TCP
+    name: mongodb
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.mongodb.name "context" .) | nindent 4 }}
+{{- end }}

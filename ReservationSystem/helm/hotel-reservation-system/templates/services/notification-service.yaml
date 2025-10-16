@@ -1,0 +1,137 @@
+{{- if .Values.notificationService.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.notificationService.name }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.notificationService.name "context" .) | nindent 4 }}
+data:
+  # MongoDB configuration (for storing notifications)
+  MONGO_URI: {{ include "hotel-reservation.mongoUrl" (dict "host" .Values.mongodb.name "port" .Values.mongodb.service.port "database" .Values.mongodb.database.name "user" .Values.mongodb.database.user "password" .Values.mongodb.database.password) | quote }}
+  MONGO_DATABASE: {{ .Values.mongodb.database.name | quote }}
+  
+  # RabbitMQ configuration
+  RABBITMQ_URL: {{ include "hotel-reservation.rabbitmqUrl" (dict "host" .Values.rabbitmq.name "port" .Values.rabbitmq.service.amqpPort "user" .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER "password" .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS) | quote }}
+  RABBITMQ_HOST: {{ .Values.rabbitmq.name | quote }}
+  RABBITMQ_PORT: {{ .Values.rabbitmq.service.amqpPort | quote }}
+  RABBITMQ_USER: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
+  RABBITMQ_PASSWORD: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
+  
+  # Application configuration
+  {{- range $key, $value := .Values.notificationService.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.notificationService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.notificationService.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.notificationService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.notificationService.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.notificationService.name "context" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "hotel-reservation.envVars" (dict "serviceName" .Values.notificationService.name "context" .) | sha256sum }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- include "hotel-reservation.securityContext" .Values.global.securityContext | nindent 6 }}
+      initContainers:
+      - name: wait-for-mongodb
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.mongodb.name }} {{ .Values.mongodb.service.port }}; do
+            echo "Waiting for MongoDB to be ready..."
+            sleep 2
+          done
+          echo "MongoDB is ready!"
+      - name: wait-for-rabbitmq
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z {{ .Values.rabbitmq.name }} {{ .Values.rabbitmq.service.amqpPort }}; do
+            echo "Waiting for RabbitMQ to be ready..."
+            sleep 2
+          done
+          echo "RabbitMQ is ready!"
+        env:
+        - name: RABBITMQ_DEFAULT_USER
+          value: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
+        - name: RABBITMQ_DEFAULT_PASS
+          value: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
+      - name: wait-for-kafka
+        image: busybox:1.35
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until nc -z hotel-reservation-kafka 9092; do
+            echo "Waiting for Kafka to be ready..."
+            sleep 2
+          done
+          echo "Kafka is ready!"
+      containers:
+      - name: {{ .Values.notificationService.name }}
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.notificationService.image.repository "tag" .Values.notificationService.image.tag) }}
+        imagePullPolicy: {{ .Values.notificationService.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.notificationService.service.targetPort }}
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: {{ .Values.notificationService.name }}-config
+        {{- include "hotel-reservation.resources" .Values.notificationService.resources | nindent 8 }}
+        {{- if .Values.notificationService.livenessProbe }}
+        livenessProbe:
+          {{- toYaml .Values.notificationService.livenessProbe | nindent 10 }}
+        {{- end }}
+        {{- if .Values.notificationService.readinessProbe }}
+        readinessProbe:
+          {{- toYaml .Values.notificationService.readinessProbe | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.notificationService.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.notificationService.name "context" .) | nindent 4 }}
+  {{- if .Values.notificationService.service.annotations }}
+  annotations:
+    {{- toYaml .Values.notificationService.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.notificationService.service.type }}
+  ports:
+  - port: {{ .Values.notificationService.service.port }}
+    targetPort: {{ .Values.notificationService.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.notificationService.name "context" .) | nindent 4 }}
+{{- end }}

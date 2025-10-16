@@ -1,0 +1,138 @@
+openapi: 3.0.0
+info:
+  title: Payment Service API
+  description: Payment processing API
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8084
+    description: Local development
+  - url: https://api.hotel.com/payments
+    description: Production
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+
+  /payments:
+    post:
+      summary: Process payment
+      tags:
+        - Payments
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '201':
+          description: Payment processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          description: Invalid request
+
+  /payments/{id}:
+    get:
+      summary: Get payment status
+      tags:
+        - Payments
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+
+  /payments/{id}/refund:
+    post:
+      summary: Refund payment
+      tags:
+        - Payments
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Refund processed
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    PaymentRequest:
+      type: object
+      required:
+        - booking_id
+        - amount
+        - currency
+        - payment_method
+      properties:
+        booking_id:
+          type: integer
+        amount:
+          type: number
+          format: float
+        currency:
+          type: string
+          example: USD
+        payment_method:
+          type: string
+          enum: [CARD, PAYPAL, BANK_TRANSFER]
+        card_number:
+          type: string
+        card_expiry:
+          type: string
+        card_cvv:
+          type: string
+
+    Payment:
+      type: object
+      properties:
+        id:
+          type: integer
+        booking_id:
+          type: integer
+        amount:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, SUCCESS, FAILED, REFUNDED]
+        payment_method:
+          type: string
+        transaction_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+

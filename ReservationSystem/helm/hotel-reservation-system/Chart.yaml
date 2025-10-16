@@ -1,0 +1,43 @@
+apiVersion: v2
+name: hotel-reservation-system
+description: A comprehensive Helm chart for Hotel Reservation Microservices System
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+
+keywords:
+  - hotel
+  - reservation
+  - microservices
+  - kubernetes
+  - spring-boot
+  - fastapi
+  - golang
+  - nodejs
+  - postgresql
+  - mongodb
+  - redis
+  - kafka
+  - rabbitmq
+
+home: https://github.com/hotel-reservation/system
+sources:
+  - https://github.com/hotel-reservation/system
+
+maintainers:
+  - name: Hotel Reservation Team
+    email: team@hotel-reservation.com
+    url: https://hotel-reservation.com
+
+annotations:
+  category: Application
+  licenses: MIT
+  
+dependencies:
+  - name: kafka
+    version: "30.1.6"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: kafka.enabled
+
+# Minimum Kubernetes version
+kubeVersion: ">=1.20.0"
