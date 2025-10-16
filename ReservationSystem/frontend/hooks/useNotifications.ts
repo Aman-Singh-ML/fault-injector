@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 interface NotificationEvent {
   type: 'connected' | 'new_notification' | 'notification_read' | 'all_notifications_read';

@@ -77,17 +77,17 @@ EOF
 # Create Booking database dummy data
 cat > /tmp/booking-dummy-data.sql << 'EOF'
 -- Sample bookings for testing
-INSERT INTO bookings (user_id, hotel_id, hotel_name, check_in_date, check_out_date, rooms, adults, children, total_price, status) VALUES
-(1, 'hotel_001', 'Grand Plaza Hotel', '2024-11-15', '2024-11-18', 1, 2, 0, 750.00, 'CONFIRMED'),
-(2, 'hotel_002', 'Seaside Resort', '2024-11-20', '2024-11-25', 2, 4, 2, 1750.00, 'CONFIRMED'),
-(3, 'hotel_003', 'Mountain View Lodge', '2024-12-01', '2024-12-05', 1, 2, 1, 720.00, 'PENDING'),
-(1, 'hotel_004', 'Downtown Business Hotel', '2024-11-10', '2024-11-12', 1, 1, 0, 400.00, 'COMPLETED'),
-(4, 'hotel_001', 'Grand Plaza Hotel', '2024-12-15', '2024-12-20', 2, 3, 1, 1250.00, 'CONFIRMED'),
-(5, 'hotel_002', 'Seaside Resort', '2024-11-25', '2024-11-30', 1, 2, 0, 1750.00, 'PENDING'),
-(6, 'hotel_005', 'City Center Hotel', '2024-12-05', '2024-12-08', 1, 2, 0, 600.00, 'CONFIRMED'),
-(2, 'hotel_006', 'Luxury Resort & Spa', '2025-01-10', '2025-01-15', 3, 6, 3, 2400.00, 'PENDING'),
-(7, 'hotel_003', 'Mountain View Lodge', '2024-12-20', '2024-12-25', 2, 4, 2, 1800.00, 'CONFIRMED'),
-(8, 'hotel_007', 'Airport Hotel', '2024-11-08', '2024-11-09', 1, 1, 0, 120.00, 'COMPLETED')
+INSERT INTO bookings (user_id, hotel_id, hotel_name, check_in_date, check_out_date, rooms, adults, children, total_price, status, payment_status) VALUES
+(1, 'hotel_001', 'Grand Plaza Hotel', '2024-11-15', '2024-11-18', 1, 2, 0, 750.00, 'CONFIRMED', 'SUCCESS'),
+(2, 'hotel_002', 'Seaside Resort', '2024-11-20', '2024-11-25', 2, 4, 2, 1750.00, 'CONFIRMED', 'SUCCESS'),
+(3, 'hotel_003', 'Mountain View Lodge', '2024-12-01', '2024-12-05', 1, 2, 1, 720.00, 'PENDING', 'PENDING'),
+(1, 'hotel_004', 'Downtown Business Hotel', '2024-11-10', '2024-11-12', 1, 1, 0, 400.00, 'COMPLETED', 'SUCCESS'),
+(4, 'hotel_001', 'Grand Plaza Hotel', '2024-12-15', '2024-12-20', 2, 3, 1, 1250.00, 'CONFIRMED', 'SUCCESS'),
+(5, 'hotel_002', 'Seaside Resort', '2024-11-25', '2024-11-30', 1, 2, 0, 1750.00, 'PENDING', 'PENDING'),
+(6, 'hotel_005', 'City Center Hotel', '2024-12-05', '2024-12-08', 1, 2, 0, 600.00, 'CONFIRMED', 'SUCCESS'),
+(2, 'hotel_006', 'Luxury Resort & Spa', '2025-01-10', '2025-01-15', 3, 6, 3, 2400.00, 'PENDING', 'PENDING'),
+(7, 'hotel_003', 'Mountain View Lodge', '2024-12-20', '2024-12-25', 2, 4, 2, 1800.00, 'CONFIRMED', 'SUCCESS'),
+(8, 'hotel_007', 'Airport Hotel', '2024-11-08', '2024-11-09', 1, 1, 0, 120.00, 'COMPLETED', 'SUCCESS')
 ON CONFLICT DO NOTHING;
 EOF
 

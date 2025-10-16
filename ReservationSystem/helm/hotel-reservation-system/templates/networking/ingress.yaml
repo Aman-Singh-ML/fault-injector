@@ -7,10 +7,27 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "hotel-reservation.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
   annotations:
+    # Default ingress annotations
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # CORS support
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-User-Id,X-User-Role"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    # Custom annotations from values
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
@@ -35,9 +52,52 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
+                {{- if and $.Values.nginx.enabled (eq .service "gateway") }}
+                name: {{ $.Values.nginx.name }}
+                {{- else if and $.Values.nginx.enabled (eq .service "frontend") }}
+                name: {{ $.Values.nginx.name }}
+                {{- else }}
                 name: {{ .service }}
+                {{- end }}
                 port:
+                  {{- if and $.Values.nginx.enabled (or (eq .service "gateway") (eq .service "frontend")) }}
+                  number: {{ $.Values.nginx.service.port }}
+                  {{- else }}
                   number: {{ .port }}
+                  {{- end }}
           {{- end }}
     {{- end }}
+{{- end }}
+
+{{- if and .Values.nginx.enabled (not .Values.ingress.enabled) }}
+---
+# Alternative ingress when nginx is enabled but main ingress is disabled
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-nginx-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-User-Id,X-User-Role"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: hotel-reservation.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ .Values.nginx.name }}
+            port:
+              number: {{ .Values.nginx.service.port }}
 {{- end }}

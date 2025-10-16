@@ -223,3 +223,10 @@ Generate RabbitMQ connection URL
 {{- $password := .password -}}
 amqp://{{ $user }}:{{ $password }}@{{ $host }}:{{ $port }}/
 {{- end }}
+
+{{/*
+Generate nginx config checksum helper
+*/}}
+{{- define "hotel-reservation.nginx.config" -}}
+{{- toYaml .Values.nginx.config }}
+{{- end }}

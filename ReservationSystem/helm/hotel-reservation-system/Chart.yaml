@@ -14,6 +14,7 @@ keywords:
   - fastapi
   - golang
   - nodejs
+  - nginx
   - postgresql
   - mongodb
   - redis

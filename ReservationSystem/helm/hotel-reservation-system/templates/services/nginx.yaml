@@ -1,0 +1,278 @@
+{{- if .Values.nginx.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.nginx.name }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.nginx.name "context" .) | nindent 4 }}
+data:
+  nginx.conf: |
+    worker_processes {{ .Values.nginx.config.workerProcesses }};
+    error_log /var/log/nginx/error.log warn;
+    pid /var/run/nginx.pid;
+
+    events {
+        worker_connections {{ .Values.nginx.config.workerConnections }};
+        use epoll;
+        multi_accept on;
+    }
+
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
+        # Logging format
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log /var/log/nginx/access.log main;
+
+        # Basic settings
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout {{ .Values.nginx.config.keepaliveTimeout }};
+        types_hash_max_size 2048;
+        client_max_body_size {{ .Values.nginx.config.clientMaxBodySize }};
+        client_body_timeout {{ .Values.nginx.config.clientBodyTimeout }};
+        client_header_timeout {{ .Values.nginx.config.clientHeaderTimeout }};
+
+        # Proxy settings
+        proxy_connect_timeout {{ .Values.nginx.config.proxyConnectTimeout }};
+        proxy_read_timeout {{ .Values.nginx.config.proxyReadTimeout }};
+        proxy_send_timeout {{ .Values.nginx.config.proxySendTimeout }};
+        proxy_buffer_size {{ .Values.nginx.config.proxyBufferSize }};
+        proxy_buffers {{ .Values.nginx.config.proxyBuffers }};
+        proxy_busy_buffers_size 8k;
+        proxy_temp_file_write_size 8k;
+
+        # Gzip compression
+        {{- if .Values.nginx.config.gzip.enabled }}
+        gzip on;
+        gzip_vary on;
+        gzip_min_length {{ .Values.nginx.config.gzip.minLength }};
+        gzip_proxied any;
+        gzip_comp_level {{ .Values.nginx.config.gzip.level }};
+        gzip_types {{ .Values.nginx.config.gzip.types }};
+        {{- end }}
+
+        # Rate limiting
+        {{- if .Values.nginx.config.rateLimitZone }}
+        limit_req_zone {{ .Values.nginx.config.rateLimitZone }};
+        {{- end }}
+
+        # Upstream definitions
+        upstream gateway_backend {
+            least_conn;
+            {{- range $i := until (int .Values.gateway.replicaCount) }}
+            server {{ $.Values.gateway.name }}.{{ $.Values.global.namespace }}.svc.cluster.local:{{ $.Values.gateway.service.port }} max_fails=3 fail_timeout=30s;
+            {{- end }}
+            keepalive 32;
+        }
+
+        upstream frontend_backend {
+            least_conn;
+            {{- range $i := until (int .Values.frontend.replicaCount) }}
+            server {{ $.Values.frontend.name }}.{{ $.Values.global.namespace }}.svc.cluster.local:{{ $.Values.frontend.service.port }} max_fails=3 fail_timeout=30s;
+            {{- end }}
+            keepalive 32;
+        }
+
+        # Main server block
+        server {
+            listen 8080;
+            server_name {{ if .Values.ingress.hosts }}{{ (index .Values.ingress.hosts 0).host }}{{ else }}hotel-reservation.local{{ end }};
+
+            # Security headers
+            {{- if .Values.nginx.config.securityHeaders.enabled }}
+            add_header X-Frame-Options {{ .Values.nginx.config.securityHeaders.frameOptions }};
+            add_header X-Content-Type-Options {{ .Values.nginx.config.securityHeaders.contentTypeOptions }};
+            add_header X-XSS-Protection "{{ .Values.nginx.config.securityHeaders.xssProtection }}";
+            add_header Referrer-Policy {{ .Values.nginx.config.securityHeaders.referrerPolicy }};
+            add_header Content-Security-Policy "{{ .Values.nginx.config.securityHeaders.contentSecurityPolicy }}";
+            {{- end }}
+
+            # Rate limiting
+            {{- if .Values.nginx.config.rateLimitZone }}
+            limit_req zone=api burst={{ .Values.nginx.config.rateLimitBurst }} nodelay;
+            {{- end }}
+
+            # Health check endpoint
+            location /health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+
+            # API Gateway routes
+            location /api/ {
+                proxy_pass http://gateway_backend/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Forwarded-Host $host;
+                proxy_set_header X-Forwarded-Port $server_port;
+                
+                # WebSocket support
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                
+                # Timeouts
+                proxy_connect_timeout {{ .Values.nginx.config.proxyConnectTimeout }};
+                proxy_read_timeout {{ .Values.nginx.config.proxyReadTimeout }};
+                proxy_send_timeout {{ .Values.nginx.config.proxySendTimeout }};
+            }
+
+            # Frontend routes (catch-all)
+            location / {
+                proxy_pass http://frontend_backend/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Forwarded-Host $host;
+                proxy_set_header X-Forwarded-Port $server_port;
+                
+                # WebSocket support for Next.js hot reload
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                
+                # Timeouts
+                proxy_connect_timeout {{ .Values.nginx.config.proxyConnectTimeout }};
+                proxy_read_timeout {{ .Values.nginx.config.proxyReadTimeout }};
+                proxy_send_timeout {{ .Values.nginx.config.proxySendTimeout }};
+            }
+
+            # Static assets caching
+            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                proxy_pass http://frontend_backend;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                
+                # Cache static assets
+                expires 1y;
+                add_header Cache-Control "public, immutable";
+                add_header Vary Accept-Encoding;
+            }
+
+            {{- range .Values.nginx.config.customLocations }}
+            # Custom location: {{ .path }}
+            location {{ .path }} {
+                proxy_pass {{ .proxyPass }};
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                
+                {{- if .extraConfig }}
+                {{ .extraConfig | nindent 16 }}
+                {{- end }}
+            }
+            {{- end }}
+
+            # Error pages
+            error_page 404 /404.html;
+            error_page 500 502 503 504 /50x.html;
+            
+            location = /50x.html {
+                root /usr/share/nginx/html;
+            }
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.nginx.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.nginx.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.nginx.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.nginx.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.nginx.name "context" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "hotel-reservation.nginx.config" . | sha256sum }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      {{- include "hotel-reservation.securityContext" .Values.global.securityContext | nindent 6 }}
+      containers:
+      - name: {{ .Values.nginx.name }}
+        image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.nginx.image.repository "tag" .Values.nginx.image.tag) }}
+        imagePullPolicy: {{ .Values.nginx.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        ports:
+        - containerPort: {{ .Values.nginx.service.targetPort }}
+          name: http
+          protocol: TCP
+        {{- include "hotel-reservation.resources" .Values.nginx.resources | nindent 8 }}
+        {{- if .Values.nginx.livenessProbe }}
+        livenessProbe:
+          {{- toYaml .Values.nginx.livenessProbe | nindent 10 }}
+        {{- end }}
+        {{- if .Values.nginx.readinessProbe }}
+        readinessProbe:
+          {{- toYaml .Values.nginx.readinessProbe | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /var/cache/nginx
+        - name: run
+          mountPath: /var/run
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: {{ .Values.nginx.name }}-config
+          defaultMode: 0644
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+      - name: run
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.nginx.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.nginx.name "context" .) | nindent 4 }}
+  {{- if .Values.nginx.service.annotations }}
+  annotations:
+    {{- toYaml .Values.nginx.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.nginx.service.type }}
+  ports:
+  - port: {{ .Values.nginx.service.port }}
+    targetPort: {{ .Values.nginx.service.targetPort }}
+    protocol: TCP
+    name: http
+    {{- if and (eq .Values.nginx.service.type "NodePort") .Values.nginx.service.nodePort }}
+    nodePort: {{ .Values.nginx.service.nodePort }}
+    {{- end }}
+  selector:
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.nginx.name "context" .) | nindent 4 }}
+{{- end }}

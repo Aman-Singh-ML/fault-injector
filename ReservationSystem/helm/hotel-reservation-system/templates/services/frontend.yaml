@@ -8,8 +8,12 @@ metadata:
   labels:
     {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.frontend.name "context" .) | nindent 4 }}
 data:
-  # API Gateway URL
-  NEXT_PUBLIC_API_URL: "http://{{ .Values.gateway.name }}:{{ .Values.gateway.service.port }}"
+  # API Gateway URL - Use nginx service for external access
+  {{- if .Values.nginx.enabled }}
+  NEXT_PUBLIC_API_URL: "/api"
+  {{- else }}
+  NEXT_PUBLIC_API_URL: "http://{{ .Values.gateway.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.gateway.service.port }}"
+  {{- end }}
   
   # Application configuration
   {{- range $key, $value := .Values.frontend.env }}

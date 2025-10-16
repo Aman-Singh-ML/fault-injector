@@ -163,8 +163,8 @@ func InitiatePayment(c *gin.Context) {
 	// Insert payment into database
 	var paymentID int
 	err = db.QueryRow(`
-		INSERT INTO payments (booking_id, user_id, amount, status, otp, created_at, updated_at)
-		VALUES ($1, $2, $3, 'PENDING', $4, NOW(), NOW())
+		INSERT INTO payments (booking_id, user_id, amount, currency, status, payment_method, otp, created_at, updated_at)
+		VALUES ($1, $2, $3, 'USD', 'PENDING', 'OTP', $4, NOW(), NOW())
 		RETURNING id
 	`, bookingID, userID, req.Amount, otp).Scan(&paymentID)
 
