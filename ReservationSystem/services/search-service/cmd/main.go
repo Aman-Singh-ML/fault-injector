@@ -8,11 +8,51 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/hotel/search-service/internal/handlers"
+	"github.com/hotel/search-service/internal/tracing"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+var (
+	httpRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"method", "endpoint", "status"},
+	)
+
+	httpRequestDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "HTTP request latency in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "endpoint"},
+	)
+)
+
+func prometheusMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+
+		c.Next()
+
+		duration := time.Since(start).Seconds()
+		status := c.Writer.Status()
+
+		httpRequestsTotal.WithLabelValues(c.Request.Method, c.FullPath(), string(rune(status))).Inc()
+		httpRequestDuration.WithLabelValues(c.Request.Method, c.FullPath()).Observe(duration)
+	}
+}
+
 func main() {
+	// Initialize tracing
+	cleanup := tracing.InitTracing("search-service")
+	defer cleanup()
 	// Connect to MongoDB
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
@@ -42,6 +82,12 @@ func main() {
 
 	// Create router
 	router := gin.Default()
+
+	// Add Prometheus middleware
+	router.Use(prometheusMiddleware())
+
+	// Metrics endpoint
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// Health check
 	router.GET("/health", func(c *gin.Context) {

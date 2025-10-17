@@ -8,13 +8,17 @@ metadata:
   labels:
     {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.frontend.name "context" .) | nindent 4 }}
 data:
-  # API Gateway URL - Use nginx service for external access
-  {{- if .Values.nginx.enabled }}
+  # API Gateway URL for browser clients via Ingress
+  {{- if .Values.ingress.enabled }}
   NEXT_PUBLIC_API_URL: "/api"
+  API_URL: "/api"
+  NEXT_PUBLIC_API_BASE_PATH: "/api"
   {{- else }}
+  # Fallback to cluster-internal service URL if Ingress is disabled
   NEXT_PUBLIC_API_URL: "http://{{ .Values.gateway.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.gateway.service.port }}"
+  API_URL: "http://{{ .Values.gateway.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.gateway.service.port }}"
   {{- end }}
-  
+
   # Application configuration
   {{- range $key, $value := .Values.frontend.env }}
   {{ $key }}: {{ $value | quote }}

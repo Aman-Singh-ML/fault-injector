@@ -1,0 +1,263 @@
+{{- if and .Values.observability.prometheus.enabled .Values.observability.alertmanager.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      {{- if .Values.observability.alertmanager.slack.enabled }}
+      slack_api_url: {{ .Values.observability.alertmanager.slack.webhookUrl | quote }}
+      {{- end }}
+    
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: 'default'
+      routes:
+      # Critical alerts - immediate notification
+      - match:
+          severity: critical
+        receiver: 'critical-alerts'
+        group_wait: 5s
+        repeat_interval: 4h
+        
+      # High severity alerts
+      - match:
+          severity: high
+        receiver: 'high-alerts'
+        group_wait: 10s
+        repeat_interval: 6h
+        
+      # Warning alerts
+      - match:
+          severity: warning
+        receiver: 'warning-alerts'
+        group_wait: 30s
+        repeat_interval: 12h
+        
+      # Service availability alerts
+      - match:
+          category: availability
+        receiver: 'availability-alerts'
+        group_wait: 5s
+        repeat_interval: 2h
+        
+      # Infrastructure alerts
+      - match:
+          category: infrastructure
+        receiver: 'infrastructure-alerts'
+        group_wait: 10s
+        repeat_interval: 4h
+    
+    receivers:
+    - name: 'default'
+      {{- if .Values.observability.alertmanager.slack.enabled }}
+      slack_configs:
+      - channel: {{ .Values.observability.alertmanager.slack.channel | default "#alerts" | quote }}
+        title: 'Hotel Reservation System Alert'
+        text: |
+          {{ `{{ range .Alerts }}` }}
+          *Alert:* {{ `{{ .Labels.alertname }}` }}
+          *Severity:* {{ `{{ .Labels.severity }}` }}
+          *Summary:* {{ `{{ .Annotations.summary }}` }}
+          *Description:* {{ `{{ .Annotations.description }}` }}
+          {{ `{{ end }}` }}
+        send_resolved: true
+      {{- end }}
+      {{- if .Values.observability.alertmanager.email.enabled }}
+      email_configs:
+      - to: {{ .Values.observability.alertmanager.email.to | quote }}
+        from: {{ .Values.observability.alertmanager.email.from | quote }}
+        smarthost: {{ .Values.observability.alertmanager.email.smarthost | quote }}
+        auth_username: {{ .Values.observability.alertmanager.email.username | quote }}
+        auth_password: {{ .Values.observability.alertmanager.email.password | quote }}
+        headers:
+          Subject: 'Hotel Reservation System Alert'
+      {{- end }}
+      
+    - name: 'critical-alerts'
+      {{- if .Values.observability.alertmanager.slack.enabled }}
+      slack_configs:
+      - channel: {{ .Values.observability.alertmanager.slack.criticalChannel | default "#critical-alerts" | quote }}
+        title: '🚨 CRITICAL: {{ `{{ .GroupLabels.alertname }}` }}'
+        text: |
+          {{ `{{ range .Alerts }}` }}
+          *Alert:* {{ `{{ .Labels.alertname }}` }}
+          *Service:* {{ `{{ .Labels.job }}` }}
+          *Summary:* {{ `{{ .Annotations.summary }}` }}
+          *Description:* {{ `{{ .Annotations.description }}` }}
+          *Time:* {{ `{{ .StartsAt.Format "2006-01-02 15:04:05" }}` }}
+          {{ `{{ end }}` }}
+        send_resolved: true
+        color: 'danger'
+      {{- end }}
+      {{- if .Values.observability.alertmanager.pagerduty.enabled }}
+      pagerduty_configs:
+      - service_key: {{ .Values.observability.alertmanager.pagerduty.serviceKey | quote }}
+        description: '{{ `{{ .GroupLabels.alertname }}` }}: {{ `{{ .Annotations.summary }}` }}'
+      {{- end }}
+      
+    - name: 'high-alerts'
+      {{- if .Values.observability.alertmanager.slack.enabled }}
+      slack_configs:
+      - channel: {{ .Values.observability.alertmanager.slack.channel | default "#alerts" | quote }}
+        title: '⚠️ HIGH: {{ `{{ .GroupLabels.alertname }}` }}'
+        text: |
+          {{ `{{ range .Alerts }}` }}
+          *Alert:* {{ `{{ .Labels.alertname }}` }}
+          *Service:* {{ `{{ .Labels.job }}` }}
+          *Summary:* {{ `{{ .Annotations.summary }}` }}
+          *Description:* {{ `{{ .Annotations.description }}` }}
+          {{ `{{ end }}` }}
+        send_resolved: true
+        color: 'warning'
+      {{- end }}
+      
+    - name: 'warning-alerts'
+      {{- if .Values.observability.alertmanager.slack.enabled }}
+      slack_configs:
+      - channel: {{ .Values.observability.alertmanager.slack.channel | default "#alerts" | quote }}
+        title: 'ℹ️ WARNING: {{ `{{ .GroupLabels.alertname }}` }}'
+        text: |
+          {{ `{{ range .Alerts }}` }}
+          *Alert:* {{ `{{ .Labels.alertname }}` }}
+          *Service:* {{ `{{ .Labels.job }}` }}
+          *Summary:* {{ `{{ .Annotations.summary }}` }}
+          {{ `{{ end }}` }}
+        send_resolved: true
+      {{- end }}
+      
+    - name: 'availability-alerts'
+      {{- if .Values.observability.alertmanager.slack.enabled }}
+      slack_configs:
+      - channel: {{ .Values.observability.alertmanager.slack.criticalChannel | default "#critical-alerts" | quote }}
+        title: '🔴 SERVICE DOWN: {{ `{{ .GroupLabels.alertname }}` }}'
+        text: |
+          {{ `{{ range .Alerts }}` }}
+          *Service:* {{ `{{ .Labels.job }}` }}
+          *Status:* DOWN
+          *Summary:* {{ `{{ .Annotations.summary }}` }}
+          *Description:* {{ `{{ .Annotations.description }}` }}
+          *Time:* {{ `{{ .StartsAt.Format "2006-01-02 15:04:05" }}` }}
+          {{ `{{ end }}` }}
+        send_resolved: true
+        color: 'danger'
+      {{- end }}
+      
+    - name: 'infrastructure-alerts'
+      {{- if .Values.observability.alertmanager.slack.enabled }}
+      slack_configs:
+      - channel: {{ .Values.observability.alertmanager.slack.channel | default "#alerts" | quote }}
+        title: '🔧 INFRASTRUCTURE: {{ `{{ .GroupLabels.alertname }}` }}'
+        text: |
+          {{ `{{ range .Alerts }}` }}
+          *Alert:* {{ `{{ .Labels.alertname }}` }}
+          *Component:* {{ `{{ .Labels.job }}` }}
+          *Summary:* {{ `{{ .Annotations.summary }}` }}
+          *Description:* {{ `{{ .Annotations.description }}` }}
+          {{ `{{ end }}` }}
+        send_resolved: true
+        color: 'warning'
+      {{- end }}
+    
+    inhibit_rules:
+    # Inhibit warning/high alerts if critical alert is firing
+    - source_match:
+        severity: 'critical'
+      target_match:
+        severity: 'warning'
+      equal: ['alertname', 'job']
+      
+    - source_match:
+        severity: 'critical'
+      target_match:
+        severity: 'high'
+      equal: ['alertname', 'job']
+      
+    # Inhibit error alerts if service is down
+    - source_match:
+        category: 'availability'
+      target_match:
+        category: 'errors'
+      equal: ['job']
+      
+    - source_match:
+        category: 'availability'
+      target_match:
+        category: 'performance'
+      equal: ['job']
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+    spec:
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:v0.26.0
+        args:
+        - '--config.file=/etc/alertmanager/alertmanager.yml'
+        - '--storage.path=/alertmanager'
+        - '--web.external-url=http://localhost:9093'
+        ports:
+        - containerPort: 9093
+          name: web
+        volumeMounts:
+        - name: alertmanager-config
+          mountPath: /etc/alertmanager
+        - name: alertmanager-storage
+          mountPath: /alertmanager
+        resources:
+          requests:
+            memory: {{ .Values.observability.alertmanager.resources.requests.memory | default "128Mi" }}
+            cpu: {{ .Values.observability.alertmanager.resources.requests.cpu | default "50m" }}
+          limits:
+            memory: {{ .Values.observability.alertmanager.resources.limits.memory | default "256Mi" }}
+            cpu: {{ .Values.observability.alertmanager.resources.limits.cpu | default "100m" }}
+      volumes:
+      - name: alertmanager-config
+        configMap:
+          name: alertmanager-config
+      - name: alertmanager-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: alertmanager
+spec:
+  type: {{ .Values.observability.alertmanager.service.type | default "ClusterIP" }}
+  ports:
+  - port: 9093
+    targetPort: 9093
+    name: web
+  selector:
+    app.kubernetes.io/name: alertmanager
+{{- end }}
+

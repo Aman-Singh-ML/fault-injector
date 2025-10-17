@@ -27,27 +27,208 @@ global:
       cpu: "500m"
 
 # Environment configuration
-environment: development # development, staging, production
+environment: production # development, staging, production
+
+# Nginx Ingress Controller Configuration
+ingressController:
+  enabled: true  # Set to true to install ingress controller as part of this chart
+  # Configuration for the ingress-nginx subchart
+  controller:
+    service:
+      type: LoadBalancer
+      annotations: {}
+    # Allow snippets for custom NGINX configuration
+    allowSnippetAnnotations: true
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: false  # Enable if you have Prometheus operator
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "10254"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 90Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    # Admission webhook configuration
+    admissionWebhooks:
+      enabled: true
+      failurePolicy: Fail
+      port: 8443
+      certificate: "/usr/local/certificates/cert"
+      key: "/usr/local/certificates/key"
+      namespaceSelector: {}
+      objectSelector: {}
+      annotations: {}
+      # Use certManager to generate webhook certs
+      certManager:
+        enabled: false
+      # Patch the webhook configurations with the generated certificate
+      patch:
+        enabled: true
+        image:
+          registry: registry.k8s.io
+          image: ingress-nginx/kube-webhook-certgen
+          tag: v20231011-8b53cabe0
+          digest: sha256:a7943503b45d552785aa3b5e457f169a5661fb94d82b8a3373bcd9ebaf9aac80
+          pullPolicy: IfNotPresent
+        priorityClassName: ""
+        podAnnotations: {}
+        nodeSelector:
+          kubernetes.io/os: linux
+        tolerations: []
+        labels: {}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 2000
+          fsGroup: 2000
+    # Ingress class configuration
+    ingressClassResource:
+      name: nginx
+      enabled: true
+      default: false
+      controllerValue: "k8s.io/ingress-nginx"
+    # Watch ingress without ingress class annotation
+    watchIngressWithoutClass: true
+    # Process ingress class nginx
+    ingressClass: nginx
+    # Enable validation of ingress resources
+    enableAnnotationValidations: true
+    # Watch all namespaces
+    scope:
+      enabled: false  # false means watch all namespaces
+    # Election ID for leader election
+    electionID: ingress-controller-leader-nginx
+    # Controller class
+    controllerClass: k8s.io/ingress-nginx
+    # Enable debug logging
+    logLevel: 2
+    # Additional args for debugging
+    extraArgs:
+      v: 2
+      logtostderr: true
+
+# Custom Nginx Service Configuration (deprecated - using ingress controller instead)
+nginx:
+  enabled: false  # Disabled in favor of ingress controller
+
+networkPolicy:
+  enabled: false
 
 # Ingress configuration
 ingress:
   enabled: true
   className: "nginx"
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
-  hosts:
-    - host: hotel-reservation.local
-      paths:
-        - path: /api
-          pathType: Prefix
-          service: gateway
-          port: 9000
-        - path: /
-          pathType: Prefix
-          service: frontend
-          port: 3000
+  # Main application paths
+  paths:
+    api:
+      path: /api
+      pathType: Prefix
+      service: gateway
+      port: 9000
+    frontend:
+      path: /
+      pathType: Prefix
+      service: frontend
+      port: 3000
   tls: []
+
+# Observability Stack Configuration
+observability:
+  enabled: true
+
+  jaeger:
+    enabled: true
+    strategy: allInOne  # Use 'production' for production deployments
+    storage: memory     # Use 'elasticsearch' for production
+    service:
+      type: ClusterIP
+
+  prometheus:
+    enabled: true
+    replicas: 1
+    retention: 7d
+    storage: 20Gi
+    persistence:
+      enabled: true
+    service:
+      type: ClusterIP
+    resources:
+      requests:
+        memory: 1Gi
+        cpu: 200m
+      limits:
+        memory: 2Gi
+        cpu: 500m
+
+  alertmanager:
+    enabled: true
+    service:
+      type: ClusterIP
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 100m
+    # Slack integration (optional)
+    slack:
+      enabled: false
+      webhookUrl: ""  # Set your Slack webhook URL
+      channel: "#alerts"
+      criticalChannel: "#critical-alerts"
+    # Email integration (optional)
+    email:
+      enabled: false
+      to: "alerts@example.com"
+      from: "alertmanager@example.com"
+      smarthost: "smtp.example.com:587"
+      username: ""
+      password: ""
+    # PagerDuty integration (optional)
+    pagerduty:
+      enabled: false
+      serviceKey: ""
+
+  loki:
+    enabled: true
+    retention: 168h  # 7 days
+    storage: 10Gi
+    service:
+      type: ClusterIP
+
+  grafana:
+    enabled: true
+    adminUser: admin
+    adminPassword: admin123
+    service:
+      type: ClusterIP
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 200m
+
+  promtail:
+    enabled: true
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 256Mi
+        cpu: 200m
 
 # Service Monitor for Prometheus
 serviceMonitor:
@@ -63,12 +244,6 @@ hpa:
   maxReplicas: 1
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
-
-# Network Policies
-networkPolicy:
-  enabled: false
-  ingress: []
-  egress: []
 
 #============================================================================
 # MICROSERVICES CONFIGURATION
@@ -104,125 +279,24 @@ frontend:
     NODE_ENV: production
     PORT: "3000"
 
-  # Health checks
-  livenessProbe:
-    httpGet:
-      path: /
-      port: 3000
-    initialDelaySeconds: 30
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
+  # Health checks - Temporarily disabled for debugging
+  # livenessProbe:
+  #   httpGet:
+  #     path: /
+  #     port: 3000
+  #   initialDelaySeconds: 60
+  #   periodSeconds: 30
+  #   timeoutSeconds: 10
+  #   failureThreshold: 5
 
-  readinessProbe:
-    httpGet:
-      path: /
-      port: 3000
-    initialDelaySeconds: 10
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 3
-
-# Nginx Reverse Proxy Service
-nginx:
-  enabled: true
-  name: nginx
-  replicaCount: 1
-
-  image:
-    repository: nginx
-    tag: "1.25-alpine"
-    pullPolicy: IfNotPresent
-
-  service:
-    type: LoadBalancer
-    port: 80
-    targetPort: 8080
-    annotations: {}
-
-  resources:
-    requests:
-      memory: "64Mi"
-      cpu: "50m"
-    limits:
-      memory: "128Mi"
-      cpu: "100m"
-
-  # Health checks
-  livenessProbe:
-    httpGet:
-      path: /health
-      port: 8080
-    initialDelaySeconds: 10
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-
-  readinessProbe:
-    httpGet:
-      path: /health
-      port: 8080
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 3
-
-  # Nginx configuration
-  config:
-    # Worker processes
-    workerProcesses: "auto"
-    workerConnections: 1024
-
-    # Keepalive timeout
-    keepaliveTimeout: 65
-
-    # Client settings
-    clientMaxBodySize: "10m"
-    clientBodyTimeout: "60s"
-    clientHeaderTimeout: "60s"
-
-    # Proxy settings
-    proxyConnectTimeout: "60s"
-    proxyReadTimeout: "60s"
-    proxySendTimeout: "60s"
-    proxyBufferSize: "4k"
-    proxyBuffers: "8 4k"
-
-    # Rate limiting
-    rateLimitZone: "$binary_remote_addr zone=api:10m rate=10r/s"
-    rateLimitBurst: 20
-
-    # Security headers
-    securityHeaders:
-      enabled: true
-      frameOptions: "DENY"
-      contentTypeOptions: "nosniff"
-      xssProtection: "1; mode=block"
-      referrerPolicy: "strict-origin-when-cross-origin"
-      contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:;"
-
-    # Gzip compression
-    gzip:
-      enabled: true
-      level: 6
-      minLength: 1000
-      types: "text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript application/x-javascript text/js"
-
-    # Custom locations (can be overridden)
-    customLocations: []
-    # Example:
-    # customLocations:
-    #   - path: "/custom"
-    #     proxyPass: "http://custom-service:8080"
-    #     extraConfig: |
-    #       proxy_set_header X-Custom-Header "value";
-
-    # Upstream servers (automatically configured based on services)
-    upstreams:
-      gateway:
-        servers: []  # Will be populated automatically
-      frontend:
-        servers: []  # Will be populated automatically
+  # readinessProbe:
+  #   httpGet:
+  #     path: /
+  #     port: 3000
+  #   initialDelaySeconds: 30
+  #   periodSeconds: 10
+  #   timeoutSeconds: 5
+  #   failureThreshold: 3
 
 # API Gateway Service
 gateway:

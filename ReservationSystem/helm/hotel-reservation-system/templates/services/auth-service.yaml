@@ -18,9 +18,14 @@ data:
   {{- range $key, $value := .Values.authService.env }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}
-  
+
   # Server configuration
   SERVER_PORT: {{ .Values.authService.service.targetPort | quote }}
+
+  # Observability configuration
+  {{- if .Values.observability.jaeger.enabled }}
+  JAEGER_ENDPOINT: "http://jaeger-collector.{{ .Values.global.namespace }}.svc.cluster.local:14268/api/traces"
+  {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment

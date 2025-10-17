@@ -1,103 +1,188 @@
 {{- if .Values.ingress.enabled }}
 ---
+# API Gateway Ingress - with path rewrite to strip /api prefix
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "hotel-reservation.fullname" . }}-ingress
+  name: {{ include "hotel-reservation.fullname" . }}-api-ingress
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
   annotations:
-    # Default ingress annotations
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
-    # CORS support
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "*"
-    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-User-Id,X-User-Role"
-    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
-    # Rate limiting
-    nginx.ingress.kubernetes.io/rate-limit: "100"
-    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
-    # Custom annotations from values
-    {{- with .Values.ingress.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
-  tls:
-    {{- range .Values.ingress.tls }}
-    - hosts:
-        {{- range .hosts }}
-        - {{ . | quote }}
-        {{- end }}
-      secretName: {{ .secretName }}
-    {{- end }}
-  {{- end }}
   rules:
-    {{- range .Values.ingress.hosts }}
-    - host: {{ .host | quote }}
-      http:
-        paths:
-          {{- range .paths }}
-          - path: {{ .path }}
-            pathType: {{ .pathType }}
-            backend:
-              service:
-                {{- if and $.Values.nginx.enabled (eq .service "gateway") }}
-                name: {{ $.Values.nginx.name }}
-                {{- else if and $.Values.nginx.enabled (eq .service "frontend") }}
-                name: {{ $.Values.nginx.name }}
-                {{- else }}
-                name: {{ .service }}
-                {{- end }}
-                port:
-                  {{- if and $.Values.nginx.enabled (or (eq .service "gateway") (eq .service "frontend")) }}
-                  number: {{ $.Values.nginx.service.port }}
-                  {{- else }}
-                  number: {{ .port }}
-                  {{- end }}
-          {{- end }}
-    {{- end }}
-{{- end }}
-
-{{- if and .Values.nginx.enabled (not .Values.ingress.enabled) }}
+  - http:
+      paths:
+      # Strip /api prefix: /api/auth/register -> /auth/register
+      - path: /api(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: {{ .Values.ingress.paths.api.service }}
+            port:
+              number: {{ .Values.ingress.paths.api.port }}
 ---
-# Alternative ingress when nginx is enabled but main ingress is disabled
+# Frontend Ingress - serves at root
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "hotel-reservation.fullname" . }}-nginx-ingress
+  name: {{ include "hotel-reservation.fullname" . }}-frontend-ingress
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/enable-cors: "true"
-    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
-    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-User-Id,X-User-Role"
 spec:
-  ingressClassName: nginx
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
   rules:
-  - host: hotel-reservation.local
-    http:
+  - http:
       paths:
-      - path: /
-        pathType: Prefix
+      # Frontend at root - catches everything else
+      - path: {{ .Values.ingress.paths.frontend.path }}
+        pathType: {{ .Values.ingress.paths.frontend.pathType }}
         backend:
           service:
-            name: {{ .Values.nginx.name }}
+            name: {{ .Values.ingress.paths.frontend.service }}
             port:
-              number: {{ .Values.nginx.service.port }}
+              number: {{ .Values.ingress.paths.frontend.port }}
+
+{{- if .Values.observability.enabled }}
+{{- if .Values.observability.grafana.enabled }}
+---
+# Grafana Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-grafana-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+  - http:
+      paths:
+      - path: /grafana/(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+{{- end }}
+
+{{- if .Values.observability.prometheus.enabled }}
+---
+# Prometheus Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-prometheus-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+  - http:
+      paths:
+      - path: /prometheus/(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090
+{{- end }}
+
+{{- if .Values.observability.jaeger.enabled }}
+---
+# Jaeger Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-jaeger-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jaeger
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+  - http:
+      paths:
+      - path: /jaeger/(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: jaeger-query
+            port:
+              number: 16686
+{{- end }}
+
+{{- if .Values.observability.loki.enabled }}
+---
+# Loki Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hotel-reservation.fullname" . }}-loki-ingress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/component: loki
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+  - http:
+      paths:
+      - path: /loki/(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: loki
+            port:
+              number: 3100
+{{- end }}
+{{- end }}
 {{- end }}

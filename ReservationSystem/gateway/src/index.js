@@ -1,3 +1,6 @@
+// Initialize tracing first
+import './tracing.js';
+
 import express from "express";
 import proxy from "express-http-proxy";
 import dotenv from "dotenv";
@@ -8,9 +11,13 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import CircuitBreaker from 'opossum';
+import { metricsMiddleware, register } from './metrics.js';
 
 dotenv.config();
 const app = express();
+
+// Add metrics middleware early in the pipeline
+app.use(metricsMiddleware);
 
 // ============================================
 // RATE LIMITING CONFIGURATION
@@ -485,6 +492,16 @@ app.get("/health", (req, res) => {
       admin: "50 req/15min"
     }
   });
+});
+
+// Metrics endpoint for Prometheus
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (ex) {
+    res.status(500).end(ex);
+  }
 });
 
 const PORT = process.env.PORT || 9000;

@@ -2,11 +2,14 @@ FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
-RUN go mod download
-
+# Copy all source code first
 COPY . .
 
+# Tidy and download dependencies
+RUN go mod tidy
+RUN go mod download
+
+# Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -o search-service ./cmd/main.go
 
 FROM alpine:latest

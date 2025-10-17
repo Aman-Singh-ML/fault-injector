@@ -26,9 +26,14 @@ data:
   DB_USER: {{ .Values.postgresAuth.database.user | quote }}
   DB_PASSWORD: {{ .Values.postgresAuth.database.password | quote }}
   DB_NAME: {{ .Values.postgresAuth.database.name | quote }}
-  
+
   # JWT configuration
   JWT_SECRET: {{ .Values.authService.env.JWT_SECRET | quote }}
+
+  # Observability configuration
+  {{- if .Values.observability.jaeger.enabled }}
+  JAEGER_ENDPOINT: "http://jaeger-collector.{{ .Values.global.namespace }}.svc.cluster.local:14268/api/traces"
+  {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment

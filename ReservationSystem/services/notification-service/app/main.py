@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,12 +11,58 @@ from collections import defaultdict
 import motor.motor_asyncio
 import os
 import threading
+import time
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from app.tracing import init_tracing
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+# Initialize tracing
+init_tracing("notification-service")
+
+# Prometheus metrics
+http_requests_total = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status']
+)
+
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request latency',
+    ['method', 'endpoint']
+)
 
 app = FastAPI(
     title="Notification Service",
     description="Real-time Notification Service with Kafka",
     version="1.0.0"
 )
+
+# Instrument FastAPI app
+FastAPIInstrumentor.instrument_app(app)
+
+# Prometheus metrics middleware
+@app.middleware("http")
+async def prometheus_middleware(request: Request, call_next):
+    start_time = time.time()
+
+    response = await call_next(request)
+
+    duration = time.time() - start_time
+
+    # Record metrics
+    http_requests_total.labels(
+        method=request.method,
+        endpoint=request.url.path,
+        status=response.status_code
+    ).inc()
+
+    http_request_duration_seconds.labels(
+        method=request.method,
+        endpoint=request.url.path
+    ).observe(duration)
+
+    return response
 
 # CORS middleware
 app.add_middleware(
@@ -181,6 +227,10 @@ async def shutdown_event():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "notification-service"}
+
+@app.get("/metrics")
+async def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 @app.get("/notifications/{user_id}")
 async def get_notifications(user_id: str):

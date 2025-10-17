@@ -16,6 +16,8 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV PORT=3000
+# Use relative path for API - works with any external IP or domain
+ENV NEXT_PUBLIC_API_URL=/api
 
 # Build the application
 RUN npm run build

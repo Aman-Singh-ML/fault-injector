@@ -5,6 +5,9 @@ go 1.23.0
 require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/streadway/amqp v1.1.0
+	go.opentelemetry.io/otel v1.21.0
+	go.opentelemetry.io/otel/exporters/jaeger v1.17.0
+	go.opentelemetry.io/otel/sdk v1.21.0
 )
 
 require (
