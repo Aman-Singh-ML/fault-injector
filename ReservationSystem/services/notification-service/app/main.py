@@ -32,6 +32,19 @@ http_request_duration_seconds = Histogram(
     ['method', 'endpoint']
 )
 
+# Kafka metrics
+kafka_messages_total = Counter(
+    'notification_service_kafka_messages_total',
+    'Total Kafka messages',
+    ['topic', 'status']
+)
+
+kafka_message_duration_seconds = Histogram(
+    'notification_service_kafka_message_duration_seconds',
+    'Kafka message processing duration in seconds',
+    ['topic']
+)
+
 app = FastAPI(
     title="Notification Service",
     description="Real-time Notification Service with Kafka",
@@ -124,6 +137,7 @@ def consume_kafka_events_sync():
 
         for message in consumer:
             print(f"📬 Raw Kafka message received from topic: {message.topic}")
+            start_time = time.time()
             try:
                 event = message.value
                 # Support both eventType (camelCase) and event_type (snake_case)
@@ -202,8 +216,17 @@ def consume_kafka_events_sync():
                                 pass
 
                         print(f"✅ Notification sent to {len(sse_connections[user_id])} SSE client(s)")
-                    
+
+                    # Record successful Kafka message processing
+                    duration = time.time() - start_time
+                    kafka_messages_total.labels(topic=message.topic, status='received').inc()
+                    kafka_message_duration_seconds.labels(topic=message.topic).observe(duration)
+
             except Exception as e:
+                # Record failed Kafka message processing
+                duration = time.time() - start_time
+                kafka_messages_total.labels(topic=message.topic, status='failed').inc()
+                kafka_message_duration_seconds.labels(topic=message.topic).observe(duration)
                 print(f"❌ Error processing Kafka message: {e}")
                 traceback.print_exc()
 

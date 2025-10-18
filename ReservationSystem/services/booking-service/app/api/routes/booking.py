@@ -37,12 +37,20 @@ def get_kafka_producer():
 
 def publish_event(topic: str, event: dict):
     """Publish event to Kafka (optional - won't fail if Kafka unavailable)"""
+    import time
+    from app.metrics import record_kafka_message
+
+    start_time = time.time()
     try:
         producer = get_kafka_producer()
         if producer:
             producer.send(topic, event)
+            duration = time.time() - start_time
+            record_kafka_message(topic=topic, status='sent', duration=duration)
             print(f"📨 Published event to Kafka: {event.get('eventType')}")
     except Exception as e:
+        duration = time.time() - start_time
+        record_kafka_message(topic=topic, status='failed', duration=duration)
         print(f"⚠️  Failed to publish to Kafka: {e}")
 
 # Database connection - Isolated Booking Database

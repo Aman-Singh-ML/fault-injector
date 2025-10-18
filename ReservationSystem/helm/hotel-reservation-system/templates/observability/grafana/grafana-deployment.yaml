@@ -83,6 +83,26 @@ spec:
           mountPath: /etc/grafana/provisioning/dashboards
         - name: grafana-dashboards
           mountPath: /var/lib/grafana/dashboards
+        - name: grafana-dashboard-postgresql
+          mountPath: /var/lib/grafana/dashboards/postgresql
+        - name: grafana-dashboard-mongodb
+          mountPath: /var/lib/grafana/dashboards/mongodb
+        - name: grafana-dashboard-redis
+          mountPath: /var/lib/grafana/dashboards/redis
+        - name: grafana-dashboard-kafka
+          mountPath: /var/lib/grafana/dashboards/kafka
+        - name: grafana-dashboard-service-overview
+          mountPath: /var/lib/grafana/dashboards/service-overview
+        - name: grafana-dashboard-api-gateway
+          mountPath: /var/lib/grafana/dashboards/api-gateway
+        - name: grafana-dashboard-pod-resources
+          mountPath: /var/lib/grafana/dashboards/pod-resources
+        - name: grafana-dashboard-business-metrics
+          mountPath: /var/lib/grafana/dashboards/business-metrics
+        - name: grafana-dashboard-cluster-overview
+          mountPath: /var/lib/grafana/dashboards/cluster-overview
+        - name: grafana-dashboard-individual-services
+          mountPath: /var/lib/grafana/dashboards/individual-services
         {{- if .Values.observability.grafana.persistence }}
         - name: grafana-storage
           mountPath: /var/lib/grafana
@@ -141,6 +161,36 @@ spec:
       - name: grafana-dashboards
         configMap:
           name: grafana-dashboards
+      - name: grafana-dashboard-postgresql
+        configMap:
+          name: grafana-dashboard-postgresql
+      - name: grafana-dashboard-mongodb
+        configMap:
+          name: grafana-dashboard-mongodb
+      - name: grafana-dashboard-redis
+        configMap:
+          name: grafana-dashboard-redis
+      - name: grafana-dashboard-kafka
+        configMap:
+          name: grafana-dashboard-kafka
+      - name: grafana-dashboard-service-overview
+        configMap:
+          name: grafana-dashboard-service-overview
+      - name: grafana-dashboard-api-gateway
+        configMap:
+          name: grafana-dashboard-api-gateway
+      - name: grafana-dashboard-pod-resources
+        configMap:
+          name: grafana-dashboard-pod-resources
+      - name: grafana-dashboard-business-metrics
+        configMap:
+          name: grafana-dashboard-business-metrics
+      - name: grafana-dashboard-cluster-overview
+        configMap:
+          name: grafana-dashboard-cluster-overview
+      - name: grafana-dashboard-individual-services
+        configMap:
+          name: grafana-dashboard-individual-services
       {{- if .Values.observability.grafana.persistence }}
       - name: grafana-storage
         persistentVolumeClaim:
