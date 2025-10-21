@@ -170,6 +170,9 @@ helm upgrade --install hotel-reservation \
 
 # Watch pods starting up
 kubectl get pods -n hotel-reservation -w
+
+# Once all pods are running, populate data
+./scripts/populate-all-data.sh
 ```
 
 ## 🌐 Accessing Services
@@ -209,14 +212,6 @@ kubectl port-forward -n hotel-reservation svc/grafana 3000:3000
 # Password: admin123
 ```
 
-**Available Dashboards:**
-- Application Logs - Real-time logs from all services
-- Service Overview - Request rates, latency, error rates
-- Individual Services - Per-service metrics
-- Kafka Dashboard - Message broker metrics
-- Cluster Overview - Kubernetes cluster health
-- Business Metrics - Booking rates, revenue
-
 #### 2. Prometheus (Metrics)
 
 ```bash
@@ -224,18 +219,6 @@ kubectl port-forward -n hotel-reservation svc/grafana 3000:3000
 kubectl port-forward -n hotel-reservation svc/prometheus 9090:9090
 
 # Access in browser: http://localhost:9090
-```
-
-**Example Queries:**
-```promql
-# Request rate per service
-rate(http_requests_total[5m])
-
-# Error rate
-rate(http_requests_total{status=~"5.."}[5m])
-
-# P95 latency
-histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
 ```
 
 #### 3. Jaeger (Distributed Tracing)
@@ -262,34 +245,6 @@ kubectl port-forward -n hotel-reservation svc/grafana 3000:3000
 # 2. Select "Loki" data source
 # 3. Use LogQL queries
 ```
-
-**Example LogQL Queries:**
-```logql
-# All logs from booking service
-{namespace="hotel-reservation", container="booking-service"}
-
-# Error logs from all services
-{namespace="hotel-reservation"} |~ "(?i)(error|exception|failed)"
-
-# Kafka events
-{namespace="hotel-reservation", container="booking-service"} |~ "kafka"
-```
-
----
-
-### API Gateway (Optional - for Testing)
-
-The API Gateway is typically accessed through the frontend, but you can also access it directly for testing:
-
-```bash
-# Port-forward API Gateway
-kubectl port-forward -n hotel-reservation svc/gateway 9000:9000
-
-# Test endpoints
-curl http://localhost:9000/health
-curl http://localhost:9000/api/search/hotels?city=Mumbai&checkIn=2024-12-01&checkOut=2024-12-05
-```
-
 ---
 
 ### Quick Access Summary
@@ -301,74 +256,6 @@ curl http://localhost:9000/api/search/hotels?city=Mumbai&checkIn=2024-12-01&chec
 | **Prometheus** | Port-forward | `http://localhost:9090` | - |
 | **Jaeger** | Port-forward | `http://localhost:16686` | - |
 | **API Gateway** | Port-forward | `http://localhost:9000` | - |
-
----
-
-## 🔧 Troubleshooting
-
-### Pods Not Starting
-
-```bash
-# Check pod status
-kubectl get pods -n hotel-reservation
-
-# Describe pod for events
-kubectl describe pod <pod-name> -n hotel-reservation
-
-# Check logs
-kubectl logs <pod-name> -n hotel-reservation
-```
-
-### Image Pull Errors
-
-```bash
-# Verify image exists
-docker pull amansingh2708/hotel-gateway:latest
-
-# Check imagePullPolicy in values.yaml
-# Set to "IfNotPresent" for local images
-```
-
-### Logs Not Appearing in Grafana
-
-```bash
-# Check Promtail is running
-kubectl get pods -n hotel-reservation -l app.kubernetes.io/name=promtail
-
-# Check Loki is ready
-kubectl get pods -n hotel-reservation -l app.kubernetes.io/name=loki
-
-# Restart Promtail
-kubectl rollout restart daemonset/promtail -n hotel-reservation
-
-# Verify logs in Loki
-kubectl exec -n hotel-reservation loki-0 -- wget -qO- \
-  'http://localhost:3100/loki/api/v1/label/namespace/values' 2>/dev/null
-```
-
-### Port-Forward Connection Issues
-
-```bash
-# If port-forward disconnects, restart it
-# Kill existing port-forward
-pkill -f "port-forward"
-
-# Start new port-forward
-kubectl port-forward -n hotel-reservation svc/grafana 3000:3000
-```
-
-### Database Connection Issues
-
-```bash
-# Check database pods
-kubectl get pods -n hotel-reservation | grep -E "(postgres|mongo|redis)"
-
-# Check service endpoints
-kubectl get endpoints -n hotel-reservation | grep -E "(postgres|mongo|redis)"
-
-# Test connection from service pod
-kubectl exec -it <service-pod> -n hotel-reservation -- nc -zv postgresql 5432
-```
 
 ---
 
