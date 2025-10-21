@@ -18,90 +18,48 @@ data:
     clients:
       - url: http://loki:3100/loki/api/v1/push
     scrape_configs:
-      - job_name: kubernetes-pods-name
+      # Scrape all pods in hotel-reservation namespace
+      - job_name: kubernetes-pods
         kubernetes_sd_configs:
           - role: pod
+            namespaces:
+              names:
+                - hotel-reservation
         pipeline_stages:
           - docker: {}
         relabel_configs:
-          - source_labels:
-              - __meta_kubernetes_pod_label_name
-            target_label: __service__
-          - source_labels:
-              - __meta_kubernetes_pod_node_name
-            target_label: __host__
-          - action: drop
-            regex: ''
+          # Add namespace label
+          - action: replace
             source_labels:
-              - __service__
+              - __meta_kubernetes_namespace
+            target_label: namespace
+          # Add pod name label
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_name
+            target_label: pod
+          # Add container name label
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_container_name
+            target_label: container
+          # Add node name label
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_pod_node_name
+            target_label: node
+          # Map all pod labels (including app.kubernetes.io/name)
           - action: labelmap
             regex: __meta_kubernetes_pod_label_(.+)
+          # Set job label
           - action: replace
             replacement: $1
             separator: /
             source_labels:
               - __meta_kubernetes_namespace
-              - __service__
+              - __meta_kubernetes_pod_container_name
             target_label: job
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_namespace
-            target_label: namespace
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_pod_name
-            target_label: pod
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_pod_container_name
-            target_label: container
-          - replacement: /var/log/pods/*$1/*.log
-            separator: /
-            source_labels:
-              - __meta_kubernetes_pod_uid
-              - __meta_kubernetes_pod_container_name
-            target_label: __path__
-      - job_name: kubernetes-pods-app
-        kubernetes_sd_configs:
-          - role: pod
-        pipeline_stages:
-          - docker: {}
-        relabel_configs:
-          - action: drop
-            regex: .+
-            source_labels:
-              - __meta_kubernetes_pod_label_name
-          - source_labels:
-              - __meta_kubernetes_pod_label_app
-            target_label: __service__
-          - source_labels:
-              - __meta_kubernetes_pod_node_name
-            target_label: __host__
-          - action: drop
-            regex: ''
-            source_labels:
-              - __service__
-          - action: labelmap
-            regex: __meta_kubernetes_pod_label_(.+)
-          - action: replace
-            replacement: $1
-            separator: /
-            source_labels:
-              - __meta_kubernetes_namespace
-              - __service__
-            target_label: job
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_namespace
-            target_label: namespace
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_pod_name
-            target_label: pod
-          - action: replace
-            source_labels:
-              - __meta_kubernetes_pod_container_name
-            target_label: container
+          # Set log file path
           - replacement: /var/log/pods/*$1/*.log
             separator: /
             source_labels:

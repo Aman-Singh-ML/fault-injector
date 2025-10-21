@@ -103,6 +103,8 @@ spec:
           mountPath: /var/lib/grafana/dashboards/cluster-overview
         - name: grafana-dashboard-individual-services
           mountPath: /var/lib/grafana/dashboards/individual-services
+        - name: grafana-dashboard-logs
+          mountPath: /var/lib/grafana/dashboards/logs
         {{- if .Values.observability.grafana.persistence }}
         - name: grafana-storage
           mountPath: /var/lib/grafana
@@ -191,6 +193,9 @@ spec:
       - name: grafana-dashboard-individual-services
         configMap:
           name: grafana-dashboard-individual-services
+      - name: grafana-dashboard-logs
+        configMap:
+          name: grafana-dashboard-logs
       {{- if .Values.observability.grafana.persistence }}
       - name: grafana-storage
         persistentVolumeClaim:

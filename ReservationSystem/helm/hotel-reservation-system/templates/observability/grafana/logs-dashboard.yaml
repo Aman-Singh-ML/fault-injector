@@ -1,0 +1,406 @@
+{{- if .Values.observability.grafana.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-logs
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  logs-dashboard.json: |-
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 3,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "options": {
+            "code": {
+              "language": "plaintext",
+              "showLineNumbers": false,
+              "showMiniMap": false
+            },
+            "content": "# Application Logs Dashboard\n\nReal-time logs from Booking Service, Notification Service, and Kafka. Use the service selector to filter logs.",
+            "mode": "markdown"
+          },
+          "pluginVersion": "10.2.0",
+          "title": "Dashboard Info",
+          "type": "text"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 2,
+            "w": 8,
+            "x": 0,
+            "y": 3
+          },
+          "id": 2,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["lastNotNull"],
+              "fields": ""
+            },
+            "textMode": "auto"
+          },
+          "pluginVersion": "10.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "sum(count_over_time({namespace=\"hotel-reservation\", container=\"booking-service\"} [5m]))",
+              "refId": "A"
+            }
+          ],
+          "title": "Booking Service - Log Rate (5m)",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 2,
+            "w": 8,
+            "x": 8,
+            "y": 3
+          },
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["lastNotNull"],
+              "fields": ""
+            },
+            "textMode": "auto"
+          },
+          "pluginVersion": "10.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "sum(count_over_time({namespace=\"hotel-reservation\", container=\"notification-service\"} [5m]))",
+              "refId": "A"
+            }
+          ],
+          "title": "Notification Service - Log Rate (5m)",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 2,
+            "w": 8,
+            "x": 16,
+            "y": 3
+          },
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "values": false,
+              "calcs": ["lastNotNull"],
+              "fields": ""
+            },
+            "textMode": "auto"
+          },
+          "pluginVersion": "10.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "sum(count_over_time({namespace=\"hotel-reservation\", container=~\"hotel-reservation-kafka.*\"} [5m]))",
+              "refId": "A"
+            }
+          ],
+          "title": "Kafka - Log Rate (5m)",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 5
+          },
+          "id": 5,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "pluginVersion": "10.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"hotel-reservation\", container=\"$service\"}",
+              "refId": "A"
+            }
+          ],
+          "title": "Live Logs - $service",
+          "type": "logs"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 15
+          },
+          "id": 6,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "pluginVersion": "10.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"hotel-reservation\", container=\"booking-service\"} |~ \"(?i)(error|exception|failed|fatal)\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Booking Service - Errors",
+          "type": "logs"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 15
+          },
+          "id": 7,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "pluginVersion": "10.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"hotel-reservation\", container=\"notification-service\"} |~ \"(?i)(error|exception|failed|fatal)\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Notification Service - Errors",
+          "type": "logs"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 23
+          },
+          "id": 8,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "pluginVersion": "10.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"hotel-reservation\", container=\"booking-service\"} |~ \"(?i)(kafka|published event|booking_created|booking_confirmed|booking_cancelled)\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Booking Service - Kafka Events",
+          "type": "logs"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 31
+          },
+          "id": 9,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "pluginVersion": "10.2.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "loki",
+                "uid": "loki"
+              },
+              "expr": "{namespace=\"hotel-reservation\", container=\"notification-service\"} |~ \"(?i)(kafka|received|consumer|booking-events|payment-events)\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Notification Service - Kafka Consumer",
+          "type": "logs"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["logs", "booking", "notification", "kafka"],
+      "templating": {
+        "list": [
+          {
+            "current": {
+              "selected": false,
+              "text": "booking-service",
+              "value": "booking-service"
+            },
+            "hide": 0,
+            "includeAll": false,
+            "multi": false,
+            "name": "service",
+            "options": [
+              {
+                "selected": true,
+                "text": "booking-service",
+                "value": "booking-service"
+              },
+              {
+                "selected": false,
+                "text": "notification-service",
+                "value": "notification-service"
+              },
+              {
+                "selected": false,
+                "text": "hotel-reservation-kafka-controller-0",
+                "value": "hotel-reservation-kafka-controller-0"
+              },
+              {
+                "selected": false,
+                "text": "hotel-reservation-kafka-controller-1",
+                "value": "hotel-reservation-kafka-controller-1"
+              },
+              {
+                "selected": false,
+                "text": "hotel-reservation-kafka-controller-2",
+                "value": "hotel-reservation-kafka-controller-2"
+              }
+            ],
+            "query": "booking-service,notification-service,hotel-reservation-kafka-controller-0,hotel-reservation-kafka-controller-1,hotel-reservation-kafka-controller-2",
+            "queryValue": "",
+            "skipUrlSync": false,
+            "type": "custom"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "",
+      "title": "Application Logs",
+      "uid": "logs-dashboard",
+      "version": 1,
+      "weekStart": ""
+    }
+{{- end }}
+
