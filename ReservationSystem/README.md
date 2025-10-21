@@ -63,93 +63,6 @@ sudo apt install -y \
     software-properties-common
 ```
 
-#### 2. Docker Installation
-
-```bash
-# Add Docker's official GPG key
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-# Set up Docker repository
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-# Install Docker Engine
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-# Add your user to docker group
-sudo usermod -aG docker $USER
-newgrp docker
-
-# Verify installation
-docker --version
-docker buildx version
-```
-
-#### 3. Kubectl Installation
-
-```bash
-# Download kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-
-# Install kubectl
-sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-
-# Verify installation
-kubectl version --client
-```
-
-#### 4. Helm Installation
-
-```bash
-# Download and install Helm
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-# Verify installation
-helm version
-```
-
-#### 5. Kubernetes Cluster
-
-You need access to a Kubernetes cluster. Options:
-
-**Option A: Azure Kubernetes Service (AKS)**
-```bash
-# Install Azure CLI
-curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-# Login to Azure
-az login
-
-# Create AKS cluster (example)
-az aks create \
-  --resource-group myResourceGroup \
-  --name myAKSCluster \
-  --node-count 3 \
-  --enable-addons monitoring \
-  --generate-ssh-keys
-
-# Get credentials
-az aks get-credentials --resource-group myResourceGroup --name myAKSCluster
-```
-
-**Option B: Minikube (Local Development)**
-```bash
-# Install Minikube
-curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-sudo install minikube-linux-amd64 /usr/local/bin/minikube
-
-# Start Minikube
-minikube start --cpus=4 --memory=8192 --driver=docker
-
-# Enable ingress addon
-minikube addons enable ingress
-```
-
----
-
 ## 🔨 Building Docker Images
 
 ### Prerequisites for Building
@@ -158,19 +71,12 @@ minikube addons enable ingress
 # Ensure Docker Buildx is available
 docker buildx version
 
-# Create and use a new builder instance (supports multi-platform builds)
-docker buildx create --name mybuilder --use
-docker buildx inspect --bootstrap
-```
 
 ### Build All Services
 
 #### Option 1: Build and Push to Docker Hub
 
 ```bash
-# Set your Docker Hub username
-export DOCKER_USERNAME="amansingh2708"
-
 # Login to Docker Hub
 docker login
 
@@ -236,27 +142,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 
 ## 🚀 Deploying to Kubernetes
 
-### Step 1: Create Namespace
-
-```bash
-kubectl create namespace hotel-reservation
-```
-
-### Step 2: Install Nginx Ingress Controller
-
-```bash
-# Add Nginx Ingress Helm repository
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm repo update
-
-# Install Nginx Ingress
-helm install nginx-ingress ingress-nginx/ingress-nginx \
-  --namespace ingress-nginx \
-  --create-namespace \
-  --set controller.service.type=LoadBalancer
-```
-
-### Step 3: Configure Helm Values
+### Step 1: Configure Helm Values
 
 Edit `helm/hotel-reservation-system/values.yaml`:
 
@@ -269,7 +155,7 @@ global:
   imagePullPolicy: Always
 ```
 
-### Step 4: Deploy the Application
+### Step 2: Deploy the Application
 
 ```bash
 cd ReservationSystem
@@ -288,7 +174,9 @@ kubectl get pods -n hotel-reservation -w
 
 ## 🌐 Accessing Services
 
-### Get Nginx Ingress IP
+### Frontend Application (via Nginx Ingress)
+
+The frontend application is exposed through Nginx Ingress Controller.
 
 ```bash
 # Get LoadBalancer IP
@@ -297,14 +185,192 @@ export NGINX_IP=$(kubectl get svc nginx-ingress-ingress-nginx-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
 echo "Nginx Ingress IP: $NGINX_IP"
+
+# Access frontend
+echo "Frontend URL: http://$NGINX_IP"
 ```
 
-### Access URLs
+Open your browser and navigate to: **`http://$NGINX_IP`**
 
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| **API Gateway** | `http://$NGINX_IP/api` | - |
+---
 
+### Observability Stack (via Port-Forward)
+
+All observability services are accessed using `kubectl port-forward`:
+
+#### 1. Grafana (Dashboards & Visualization)
+
+```bash
+# Port-forward Grafana
+kubectl port-forward -n hotel-reservation svc/grafana 3000:3000
+
+# Access in browser: http://localhost:3000
+# Username: admin
+# Password: admin123
+```
+
+**Available Dashboards:**
+- Application Logs - Real-time logs from all services
+- Service Overview - Request rates, latency, error rates
+- Individual Services - Per-service metrics
+- Kafka Dashboard - Message broker metrics
+- Cluster Overview - Kubernetes cluster health
+- Business Metrics - Booking rates, revenue
+
+#### 2. Prometheus (Metrics)
+
+```bash
+# Port-forward Prometheus
+kubectl port-forward -n hotel-reservation svc/prometheus 9090:9090
+
+# Access in browser: http://localhost:9090
+```
+
+**Example Queries:**
+```promql
+# Request rate per service
+rate(http_requests_total[5m])
+
+# Error rate
+rate(http_requests_total{status=~"5.."}[5m])
+
+# P95 latency
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+```
+
+#### 3. Jaeger (Distributed Tracing)
+
+```bash
+# Port-forward Jaeger
+kubectl port-forward -n hotel-reservation svc/jaeger-query 16686:16686
+
+# Access in browser: http://localhost:16686
+```
+
+View distributed traces across all microservices to debug latency and errors.
+
+#### 4. Loki (Log Aggregation)
+
+Loki is accessed through Grafana's Explore feature.
+
+```bash
+# Port-forward Grafana (if not already running)
+kubectl port-forward -n hotel-reservation svc/grafana 3000:3000
+
+# In Grafana:
+# 1. Go to Explore (compass icon)
+# 2. Select "Loki" data source
+# 3. Use LogQL queries
+```
+
+**Example LogQL Queries:**
+```logql
+# All logs from booking service
+{namespace="hotel-reservation", container="booking-service"}
+
+# Error logs from all services
+{namespace="hotel-reservation"} |~ "(?i)(error|exception|failed)"
+
+# Kafka events
+{namespace="hotel-reservation", container="booking-service"} |~ "kafka"
+```
+
+---
+
+### API Gateway (Optional - for Testing)
+
+The API Gateway is typically accessed through the frontend, but you can also access it directly for testing:
+
+```bash
+# Port-forward API Gateway
+kubectl port-forward -n hotel-reservation svc/gateway 9000:9000
+
+# Test endpoints
+curl http://localhost:9000/health
+curl http://localhost:9000/api/search/hotels?city=Mumbai&checkIn=2024-12-01&checkOut=2024-12-05
+```
+
+---
+
+### Quick Access Summary
+
+| Service | Access Method | URL | Credentials |
+|---------|---------------|-----|-------------|
+| **Frontend** | Nginx Ingress | `http://$NGINX_IP` | - |
+| **Grafana** | Port-forward | `http://localhost:3000` | admin / admin123 |
+| **Prometheus** | Port-forward | `http://localhost:9090` | - |
+| **Jaeger** | Port-forward | `http://localhost:16686` | - |
+| **API Gateway** | Port-forward | `http://localhost:9000` | - |
+
+---
+
+## 🔧 Troubleshooting
+
+### Pods Not Starting
+
+```bash
+# Check pod status
+kubectl get pods -n hotel-reservation
+
+# Describe pod for events
+kubectl describe pod <pod-name> -n hotel-reservation
+
+# Check logs
+kubectl logs <pod-name> -n hotel-reservation
+```
+
+### Image Pull Errors
+
+```bash
+# Verify image exists
+docker pull amansingh2708/hotel-gateway:latest
+
+# Check imagePullPolicy in values.yaml
+# Set to "IfNotPresent" for local images
+```
+
+### Logs Not Appearing in Grafana
+
+```bash
+# Check Promtail is running
+kubectl get pods -n hotel-reservation -l app.kubernetes.io/name=promtail
+
+# Check Loki is ready
+kubectl get pods -n hotel-reservation -l app.kubernetes.io/name=loki
+
+# Restart Promtail
+kubectl rollout restart daemonset/promtail -n hotel-reservation
+
+# Verify logs in Loki
+kubectl exec -n hotel-reservation loki-0 -- wget -qO- \
+  'http://localhost:3100/loki/api/v1/label/namespace/values' 2>/dev/null
+```
+
+### Port-Forward Connection Issues
+
+```bash
+# If port-forward disconnects, restart it
+# Kill existing port-forward
+pkill -f "port-forward"
+
+# Start new port-forward
+kubectl port-forward -n hotel-reservation svc/grafana 3000:3000
+```
+
+### Database Connection Issues
+
+```bash
+# Check database pods
+kubectl get pods -n hotel-reservation | grep -E "(postgres|mongo|redis)"
+
+# Check service endpoints
+kubectl get endpoints -n hotel-reservation | grep -E "(postgres|mongo|redis)"
+
+# Test connection from service pod
+kubectl exec -it <service-pod> -n hotel-reservation -- nc -zv postgresql 5432
+```
+
+---
 
 ## 🧹 Cleanup
 
@@ -315,9 +381,6 @@ helm uninstall hotel-reservation -n hotel-reservation
 # Delete namespace
 kubectl delete namespace hotel-reservation
 
-# Delete ingress controller
-helm uninstall nginx-ingress -n ingress-nginx
-kubectl delete namespace ingress-nginx
 ```
 
 ---
