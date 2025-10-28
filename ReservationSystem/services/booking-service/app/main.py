@@ -6,10 +6,14 @@ from typing import Optional
 import uvicorn
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import time
+import asyncio
+import redis
+import os
 
 from app.db.postgres import init_db
 from app.api.routes import booking, admin
 from app.tracing import init_tracing
+from app.consumers import start_booking_consumer, stop_booking_consumer
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # Initialize tracing
@@ -33,6 +37,9 @@ app = FastAPI(
     description="Hotel Booking Management Service",
     version="1.0.0"
 )
+
+# Global Redis client
+redis_client = None
 
 # Instrument FastAPI app
 FastAPIInstrumentor.instrument_app(app)
@@ -80,10 +87,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize database
+# Initialize database and start Kafka consumer
 @app.on_event("startup")
 async def startup_event():
+    global redis_client
+
     await init_db()
+
+    # Initialize Redis cache for booking service (port 6382)
+    try:
+        redis_host = os.getenv('REDIS_HOST', 'localhost')
+        redis_port = int(os.getenv('REDIS_PORT', '6382'))
+        redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+        redis_client.ping()
+        print(f"✅ Connected to Redis at {redis_host}:{redis_port}")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not connect to Redis: {e}")
+        redis_client = None
+
+    # Start Kafka consumer in background
+    try:
+        await start_booking_consumer()
+    except Exception as e:
+        print(f"⚠️  Warning: Could not start Kafka consumer: {e}")
+        # Don't fail startup if Kafka is not available
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    stop_booking_consumer()
+
+
+
 
 # Health check
 @app.get("/health")

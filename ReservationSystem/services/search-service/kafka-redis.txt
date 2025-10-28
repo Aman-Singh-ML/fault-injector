@@ -1,0 +1,160 @@
+================================================================================
+FOR KAFKA CREATE BOOKING MONITORING
+================================================================================
+kafka-console-consumer --bootstrap-server localhost:9094 --topic booking-requests --from-beginning
+
+
+================================================================================
+FOR KAFKA CANCEL BOOKING MONITORING
+================================================================================
+kafka-console-consumer --bootstrap-server localhost:9093 --topic booking-events --from-beginning
+
+
+================================================================================
+REDIS COMMANDS FOR SEARCH SERVICE
+================================================================================
+
+Redis Instance: hotel-redis-search
+Port: 6381
+Container: hotel-redis-search
+
+================================================================================
+CONNECT TO REDIS
+================================================================================
+
+# Using redis-cli from Docker
+docker exec -it hotel-redis-search redis-cli
+
+# Or from host machine (if redis-cli is installed)
+redis-cli -p 6381
+
+================================================================================
+VIEW CACHED SEARCH RESULTS
+================================================================================
+
+# Get all keys in Redis
+KEYS *
+
+# Get all search cache keys
+KEYS "search:*"
+
+# Get search results for all hotels
+GET "search:hotels:all"
+
+# Get search results for specific city
+GET "search:hotels:New York"
+
+# Get search results with pattern matching
+KEYS "search:hotels:*"
+
+================================================================================
+CACHE OPERATIONS
+================================================================================
+
+# View cache statistics
+INFO stats
+
+# View memory usage
+INFO memory
+
+# View all keys with their TTL
+SCAN 0 MATCH "search:*"
+
+# Get TTL of a key (time to live in seconds)
+TTL "search:hotels:all"
+
+# Get PTTL of a key (time to live in milliseconds)
+PTTL "search:hotels:New York"
+
+================================================================================
+CLEAR CACHE
+================================================================================
+
+# Delete specific search cache
+DEL "search:hotels:all"
+
+# Delete all search caches for a city
+DEL "search:hotels:New York"
+
+# Delete all search caches
+FLUSHDB
+
+# Delete all data in Redis
+FLUSHALL
+
+================================================================================
+MONITOR CACHE HITS/MISSES
+================================================================================
+
+# Monitor all commands in real-time
+MONITOR
+
+# Get cache statistics
+INFO stats
+
+# Get keyspace statistics
+INFO keyspace
+
+================================================================================
+SEARCH CACHING FLOW
+================================================================================
+
+1. User searches for hotels by city
+2. Search Service checks Redis cache for search results
+3. If found in cache (cache hit):
+   - Return cached results immediately
+   - Faster response time
+4. If not found in cache (cache miss):
+   - Query MongoDB database
+   - Store result in Redis with TTL (1 hour)
+   - Return results to user
+
+Cache Key Format: "search:hotels:{city}" or "search:hotels:all"
+Cache TTL: 3600 seconds (1 hour)
+
+================================================================================
+EXAMPLE REDIS COMMANDS
+================================================================================
+
+# Connect to Redis
+docker exec -it hotel-redis-search redis-cli
+
+# View all cached searches
+> KEYS *
+
+# Get search results for all hotels
+> GET "search:hotels:all"
+
+# Get search results for New York
+> GET "search:hotels:New York"
+
+# View cache statistics
+> INFO stats
+
+# Monitor cache operations
+> MONITOR
+
+# Clear all cache
+> FLUSHDB
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+# Check if Redis is running
+docker ps | grep hotel-redis-search
+
+# View Redis logs
+docker logs hotel-redis-search
+
+# Check Redis connectivity
+docker exec -it hotel-redis-search redis-cli ping
+
+# Check Redis memory usage
+docker exec -it hotel-redis-search redis-cli INFO memory
+
+# Check number of keys
+docker exec -it hotel-redis-search redis-cli DBSIZE
+
+================================================================================
+

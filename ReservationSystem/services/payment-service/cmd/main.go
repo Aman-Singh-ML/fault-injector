@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/hotel/payment-service/internal/handlers"
 	"github.com/hotel/payment-service/internal/tracing"
 	"github.com/prometheus/client_golang/prometheus"
@@ -51,6 +53,27 @@ func main() {
 	// Initialize tracing
 	cleanup := tracing.InitTracing("payment-service")
 	defer cleanup()
+
+	// Initialize Redis cache for payment service (port 6383)
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6383"
+	}
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+	})
+
+	// Test Redis connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Printf("⚠️  Warning: Could not connect to Redis at %s: %v", redisAddr, err)
+	} else {
+		log.Printf("✅ Connected to Redis at %s", redisAddr)
+	}
+
+	// Set Redis client in handlers
+	handlers.SetRedisClient(redisClient)
 
 	gin.SetMode(gin.ReleaseMode)
 

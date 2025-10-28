@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import { hotelsAPI } from '@/lib/api';
 import { Hotel } from '@/types';
 import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
 import HotelCard from '@/components/HotelCard';
 import SearchBar from '@/components/SearchBar';
 import toast from 'react-hot-toast';
@@ -39,9 +40,23 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const response = await hotelsAPI.search(filters);
-      setHotels(response.data);
+
+      // Handle different response formats
+      let hotelsList: any[] = [];
+      if (Array.isArray(response)) {
+        hotelsList = response;
+      } else if ((response as any).data && Array.isArray((response as any).data)) {
+        hotelsList = (response as any).data;
+      } else if ((response as any).hotels && Array.isArray((response as any).hotels)) {
+        hotelsList = (response as any).hotels;
+      }
+
+      console.log('Fetched hotels:', hotelsList);
+      setHotels(hotelsList);
     } catch (error: any) {
-      toast.error('Failed to fetch hotels');
+      console.error('Error fetching hotels:', error);
+      toast.error(error.message || 'Failed to fetch hotels');
+      setHotels([]);
     } finally {
       setLoading(false);
     }
@@ -114,6 +129,7 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

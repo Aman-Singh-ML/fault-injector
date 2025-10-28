@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import asyncio
@@ -12,6 +12,7 @@ import motor.motor_asyncio
 import os
 import threading
 import time
+import redis
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from app.tracing import init_tracing
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -92,8 +93,10 @@ mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
 db = mongo_client.hotel_db
 notifications_collection = db.notifications
 
-# In-memory storage for SSE connections
-sse_connections: Dict[str, List[asyncio.Queue]] = defaultdict(list)
+# Redis connection for notification service (port 6384)
+redis_host = os.getenv('REDIS_HOST', 'localhost')
+redis_port = int(os.getenv('REDIS_PORT', '6384'))
+redis_client = None
 
 # Kafka consumer task
 kafka_consumer_task = None
@@ -192,30 +195,7 @@ def consume_kafka_events_sync():
 
                     result = sync_collection.insert_one(notification)
                     notification['_id'] = str(result.inserted_id)
-
-                    # Send to SSE clients (using asyncio from thread)
-                    user_id = notification['userId']
-                    if user_id in sse_connections:
-                        sse_message = {
-                            'type': 'new_notification',
-                            'notification': {
-                                'id': notification['_id'],
-                                'type': notification['type'],
-                                'title': notification['title'],
-                                'message': notification['message'],
-                                'read': notification['read'],
-                                'createdAt': notification['createdAt'].isoformat()
-                            }
-                        }
-
-                        # Put message in all queues for this user
-                        for queue in sse_connections[user_id]:
-                            try:
-                                queue.put_nowait(sse_message)
-                            except:
-                                pass
-
-                        print(f"✅ Notification sent to {len(sse_connections[user_id])} SSE client(s)")
+                    print(f"✅ Notification saved to MongoDB: {notification['_id']}")
 
                     # Record successful Kafka message processing
                     duration = time.time() - start_time
@@ -236,7 +216,17 @@ def consume_kafka_events_sync():
 
 @app.on_event("startup")
 async def startup_event():
-    global kafka_consumer_task
+    global kafka_consumer_task, redis_client
+
+    # Initialize Redis cache for notification service (port 6384)
+    try:
+        redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+        redis_client.ping()
+        print(f"✅ Connected to Redis at {redis_host}:{redis_port}")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not connect to Redis: {e}")
+        redis_client = None
+
     # Start Kafka consumer in background thread (not asyncio task)
     kafka_thread = threading.Thread(target=consume_kafka_events_sync, daemon=True)
     kafka_thread.start()
@@ -280,47 +270,6 @@ async def get_notifications(user_id: str):
         print(f"❌ Error fetching notifications: {e}")
         return {'notifications': [], 'unreadCount': 0}
 
-@app.get("/notifications/{user_id}/stream")
-async def stream_notifications(user_id: str):
-    """Stream notifications for a user via SSE"""
-    
-    async def event_generator():
-        # Create a queue for this connection
-        queue = asyncio.Queue()
-        sse_connections[user_id].append(queue)
-        
-        try:
-            # Send initial connection message
-            yield f"data: {json.dumps({'type': 'connected', 'userId': user_id})}\n\n"
-            
-            # Keep connection alive and send notifications
-            while True:
-                # Wait for new notification or timeout for heartbeat
-                try:
-                    notification = await asyncio.wait_for(queue.get(), timeout=30.0)
-                    yield f"data: {json.dumps(notification)}\n\n"
-                except asyncio.TimeoutError:
-                    # Send heartbeat to keep connection alive
-                    yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
-                    
-        except asyncio.CancelledError:
-            pass
-        finally:
-            # Clean up connection
-            sse_connections[user_id].remove(queue)
-            if not sse_connections[user_id]:
-                del sse_connections[user_id]
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
-
 @app.put("/notifications/{notification_id}/read")
 async def mark_notification_read(notification_id: str):
     """Mark a notification as read"""
@@ -330,22 +279,6 @@ async def mark_notification_read(notification_id: str):
             {'_id': ObjectId(notification_id)},
             {'$set': {'read': True}}
         )
-
-        if result.modified_count > 0:
-            # Broadcast to SSE clients
-            notification = await notifications_collection.find_one({'_id': ObjectId(notification_id)})
-            if notification:
-                user_id = notification['userId']
-                if user_id in sse_connections:
-                    sse_message = {
-                        'type': 'notification_read',
-                        'notificationId': notification_id
-                    }
-                    for queue in sse_connections[user_id]:
-                        try:
-                            queue.put_nowait(sse_message)
-                        except:
-                            pass
 
         return {'success': result.modified_count > 0}
     except Exception as e:
@@ -362,19 +295,6 @@ async def mark_all_notifications_read(user_id: str):
             {'userId': user_id, 'read': False},
             {'$set': {'read': True}}
         )
-
-        if result.modified_count > 0:
-            # Broadcast to SSE clients
-            if user_id in sse_connections:
-                sse_message = {
-                    'type': 'all_notifications_read',
-                    'count': result.modified_count
-                }
-                for queue in sse_connections[user_id]:
-                    try:
-                        queue.put_nowait(sse_message)
-                    except:
-                        pass
 
         return {'success': True, 'count': result.modified_count}
     except Exception as e:

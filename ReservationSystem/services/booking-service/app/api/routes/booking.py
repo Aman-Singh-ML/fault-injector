@@ -5,6 +5,7 @@ from pydantic import BaseModel, ValidationError, validator
 import asyncpg
 import os
 import json
+import logging
 from kafka import KafkaProducer
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -13,6 +14,8 @@ from app.utils.availability_cache import (
     invalidate_availability_cache,
     get_availability_stats
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -55,13 +58,22 @@ def publish_event(topic: str, event: dict):
 
 # Database connection - Isolated Booking Database
 async def get_db_connection():
-    return await asyncpg.connect(
-        host=os.getenv('DB_HOST', 'localhost'),
-        port=int(os.getenv('DB_PORT', '5433')),
-        user=os.getenv('DB_USER', 'booking_user'),
-        password=os.getenv('DB_PASSWORD', 'booking_pass'),
-        database=os.getenv('DB_NAME', 'booking_db')
-    )
+    """Create a new database connection with timeout"""
+    try:
+        conn = await asyncpg.connect(
+            host=os.getenv('DB_HOST', 'localhost'),
+            port=int(os.getenv('DB_PORT', '5433')),
+            user=os.getenv('DB_USER', 'booking_user'),
+            password=os.getenv('DB_PASSWORD', 'booking_pass'),
+            database=os.getenv('DB_NAME', 'booking_db'),
+            timeout=5.0,
+            command_timeout=5.0,
+            ssl=False
+        )
+        return conn
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to database: {e}")
+        raise HTTPException(status_code=500, detail="Database connection failed")
 
 # Models
 class BookingCreate(BaseModel):
@@ -151,10 +163,14 @@ async def get_user_bookings(
     if not x_user_id:
         raise HTTPException(status_code=401, detail="User ID not provided")
 
-    conn = await get_db_connection()
     try:
+        logger.info(f"📨 Fetching bookings for user: {x_user_id}")
+        conn = await get_db_connection()
+        logger.info(f"✅ Connected to database")
+
         # Admin can see all bookings, regular users only see their own
         if x_user_role == 'ADMIN':
+            logger.info("🔍 Fetching all bookings (admin)")
             rows = await conn.fetch('''
                 SELECT id, user_id, hotel_id, hotel_name, check_in_date, check_out_date,
                        rooms, adults, children, total_price, status, payment_status,
@@ -163,6 +179,7 @@ async def get_user_bookings(
                 ORDER BY created_at DESC
             ''')
         else:
+            logger.info(f"🔍 Fetching bookings for user {x_user_id}")
             rows = await conn.fetch('''
                 SELECT id, user_id, hotel_id, hotel_name, check_in_date, check_out_date,
                        rooms, adults, children, total_price, status, payment_status,
@@ -172,6 +189,7 @@ async def get_user_bookings(
                 ORDER BY created_at DESC
             ''', int(x_user_id))
 
+        logger.info(f"✅ Found {len(rows)} bookings")
         bookings = []
         for row in rows:
             bookings.append({
@@ -193,9 +211,17 @@ async def get_user_bookings(
                 "updatedAt": row['updated_at'].isoformat()
             })
 
+        logger.info(f"✅ Returning {len(bookings)} bookings")
         return bookings
+    except Exception as e:
+        logger.error(f"❌ Error fetching bookings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching bookings: {str(e)}")
     finally:
-        await conn.close()
+        try:
+            await conn.close()
+            logger.info("✅ Connection closed")
+        except Exception as e:
+            logger.error(f"❌ Error closing connection: {e}")
 
 @router.get("/{booking_id}", response_model=BookingResponse)
 async def get_booking(

@@ -75,6 +75,7 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       interval: 10s
@@ -83,7 +84,7 @@ services:
     networks:
       - hotel-network
 
-  # Redis - Used by Search and Booking services for caching
+  # Redis - Main instance (kept for backward compatibility)
   redis:
     image: redis:7-alpine
     container_name: hotel-redis
@@ -99,40 +100,169 @@ services:
     networks:
       - hotel-network
 
-  # Zookeeper - Required for Kafka
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: hotel-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+  # Redis for Auth Service - Profile caching
+  redis-auth:
+    image: redis:7-alpine
+    container_name: hotel-redis-auth
     ports:
-      - "2181:2181"
+      - "6380:6379"
     volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
+      - redis_auth_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - hotel-network
 
-  # Kafka - Used by Booking service for event streaming
+  # Redis for Search Service - Search results caching
+  redis-search:
+    image: redis:7-alpine
+    container_name: hotel-redis-search
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis_search_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hotel-network
+
+  # Redis for Booking Service - Booking data caching
+  redis-booking:
+    image: redis:7-alpine
+    container_name: hotel-redis-booking
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis_booking_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hotel-network
+
+  # Redis for Payment Service - Payment data caching
+  redis-payment:
+    image: redis:7-alpine
+    container_name: hotel-redis-payment
+    ports:
+      - "6383:6379"
+    volumes:
+      - redis_payment_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hotel-network
+
+  # Redis for Notification Service - Notification data caching
+  redis-notification:
+    image: redis:7-alpine
+    container_name: hotel-redis-notification
+    ports:
+      - "6384:6379"
+    volumes:
+      - redis_notification_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hotel-network
+
+  # Redis UI for Auth Service - Real-time monitoring (RedisInsight)
+  redis-ui-auth:
+    image: redislabs/redisinsight:latest
+    container_name: hotel-redis-ui-auth
+    ports:
+      - "8888:8001"
+    environment:
+      REDIS_HOST: redis-auth
+      REDIS_PORT: 6379
+    depends_on:
+      - redis-auth
+    networks:
+      - hotel-network
+
+  # Redis Commander - General Redis UI for all instances
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: hotel-redis-commander
+    ports:
+      - "8889:8081"
+    environment:
+      - REDIS_HOSTS=auth:redis-auth:6379,search:redis-search:6379,booking:redis-booking:6379,payment:redis-payment:6379,notification:redis-notification:6379
+    depends_on:
+      - redis-auth
+      - redis-search
+      - redis-booking
+      - redis-payment
+      - redis-notification
+    networks:
+      - hotel-network
+
+  # Kafka 8.0+ - KRaft mode (no Zookeeper required) - Main Kafka for general events
   kafka:
-    image: confluentinc/cp-kafka:7.5.0
+    image: confluentinc/cp-kafka:8.0.0
     container_name: hotel-kafka
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9094,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      CLUSTER_ID: MkQkQjQ1NTcwNTJENDQyQjk=
     ports:
       - "9092:9092"
       - "9093:9093"
     volumes:
       - kafka_data:/var/lib/kafka/data
-    depends_on:
-      - zookeeper
     healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - hotel-network
+
+  # Kafka 8.0+ - KRaft mode - Dedicated Kafka for Booking Service
+  kafka-booking:
+    image: confluentinc/cp-kafka:8.0.0
+    container_name: hotel-kafka-booking
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-booking:9092,PLAINTEXT_HOST://localhost:9094
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 2@kafka-booking:9095
+      KAFKA_LISTENERS: PLAINTEXT://kafka-booking:9092,CONTROLLER://kafka-booking:9095,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs-booking
+      CLUSTER_ID: NkQkQjQ1NTcwNTJENDQyQjk=
+    ports:
+      - "9095:9092"
+      - "9094:9094"
+    volumes:
+      - kafka_booking_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -170,9 +300,19 @@ volumes:
     driver: local
   redis_data:
     driver: local
-  zookeeper_data:
+  redis_auth_data:
+    driver: local
+  redis_search_data:
+    driver: local
+  redis_booking_data:
+    driver: local
+  redis_payment_data:
+    driver: local
+  redis_notification_data:
     driver: local
   kafka_data:
+    driver: local
+  kafka_booking_data:
     driver: local
   rabbitmq_data:
     driver: local

@@ -1,0 +1,146 @@
+================================================================================
+REDIS COMMANDS FOR BOOKING SERVICE
+================================================================================
+
+Redis Instance: hotel-redis-booking
+Port: 6382
+Container: hotel-redis-booking
+
+================================================================================
+CONNECT TO REDIS
+================================================================================
+
+# Using redis-cli from Docker
+docker exec -it hotel-redis-booking redis-cli
+
+# Or from host machine (if redis-cli is installed)
+redis-cli -p 6382
+
+================================================================================
+VIEW CACHED BOOKING DATA
+================================================================================
+
+# Get all keys in Redis
+KEYS *
+
+# Get all booking cache keys
+KEYS "booking:*"
+
+# Get specific booking by ID
+GET "booking:123"
+
+# Get all bookings for a user
+KEYS "booking:user:*"
+
+# Get bookings with pattern matching
+KEYS "booking:*"
+
+================================================================================
+CACHE OPERATIONS
+================================================================================
+
+# View cache statistics
+INFO stats
+
+# View memory usage
+INFO memory
+
+# View all keys with their TTL
+SCAN 0 MATCH "booking:*"
+
+# Get TTL of a key (time to live in seconds)
+TTL "booking:123"
+
+# Get PTTL of a key (time to live in milliseconds)
+PTTL "booking:123"
+
+================================================================================
+CLEAR CACHE
+================================================================================
+
+# Delete specific booking cache
+DEL "booking:123"
+
+# Delete all booking caches for a user
+DEL "booking:user:456"
+
+# Delete all booking caches
+FLUSHDB
+
+# Delete all data in Redis
+FLUSHALL
+
+================================================================================
+MONITOR CACHE HITS/MISSES
+================================================================================
+
+# Monitor all commands in real-time
+MONITOR
+
+# Get cache statistics
+INFO stats
+
+# Get keyspace statistics
+INFO keyspace
+
+================================================================================
+BOOKING CACHING FLOW
+================================================================================
+
+1. Booking request received from Kafka
+2. Booking Service processes and stores in PostgreSQL
+3. Booking data is cached in Redis with TTL (1 hour)
+4. When booking is retrieved:
+   - Check Redis cache first (cache hit = faster response)
+   - If not in cache, query PostgreSQL (cache miss)
+   - Store result in Redis for future requests
+
+Cache Key Format: "booking:{booking_id}" or "booking:user:{user_id}"
+Cache TTL: 3600 seconds (1 hour)
+
+================================================================================
+EXAMPLE REDIS COMMANDS
+================================================================================
+
+# Connect to Redis
+docker exec -it hotel-redis-booking redis-cli
+
+# View all cached bookings
+> KEYS *
+
+# Get specific booking
+> GET "booking:123"
+
+# Get all bookings for user
+> KEYS "booking:user:456"
+
+# View cache statistics
+> INFO stats
+
+# Monitor cache operations
+> MONITOR
+
+# Clear all cache
+> FLUSHDB
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+# Check if Redis is running
+docker ps | grep hotel-redis-booking
+
+# View Redis logs
+docker logs hotel-redis-booking
+
+# Check Redis connectivity
+docker exec -it hotel-redis-booking redis-cli ping
+
+# Check Redis memory usage
+docker exec -it hotel-redis-booking redis-cli INFO memory
+
+# Check number of keys
+docker exec -it hotel-redis-booking redis-cli DBSIZE
+
+================================================================================
+

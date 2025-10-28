@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import { hotelsAPI } from '@/lib/api';
 import { Hotel } from '@/types';
 import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
 import HotelCard from '@/components/HotelCard';
 import RoomGuestSelector from '@/components/RoomGuestSelector';
 import toast from 'react-hot-toast';
@@ -264,6 +265,7 @@ function SearchPageContent() {
           </div>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }

@@ -8,12 +8,15 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hotel/search-service/internal/cache"
+	"github.com/hotel/search-service/internal/kafka"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 var mongoClient *mongo.Client
 var mongoDatabase string
+var redisCache *cache.RedisCache
 
 type Hotel struct {
 	ID             string   `json:"_id" bson:"_id"`
@@ -28,7 +31,7 @@ type Hotel struct {
 	Amenities      []string `json:"amenities" bson:"amenities"`
 	Images         []string `json:"images" bson:"images"`
 	TotalRooms     int      `json:"total_rooms" bson:"total_rooms"`
-	AvailableRooms int      `json:"available_rooms" bson:"available_rooms"`
+	AvailableRooms int      `json:"available_rooms" bson:"rooms_available"`
 }
 
 type Room struct {
@@ -50,8 +53,34 @@ func SetMongoClient(client *mongo.Client) {
 	log.Printf("Using MongoDB database: %s", mongoDatabase)
 }
 
+func SetRedisCache(cache *cache.RedisCache) {
+	redisCache = cache
+	log.Printf("✅ Redis cache initialized for search service")
+}
+
 func SearchHotels(c *gin.Context) {
 	city := c.Query("city")
+
+	// Create cache key
+	cacheKey := "search:hotels:" + city
+	if city == "" {
+		cacheKey = "search:hotels:all"
+	}
+
+	// Try to get from Redis cache
+	if redisCache != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		var cachedHotels []Hotel
+		err := redisCache.Get(ctx, cacheKey, &cachedHotels)
+		if err == nil {
+			log.Printf("✅ Cache hit for key: %s", cacheKey)
+			c.JSON(http.StatusOK, cachedHotels)
+			return
+		}
+		log.Printf("⚠️  Cache miss for key: %s", cacheKey)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -78,9 +107,30 @@ func SearchHotels(c *gin.Context) {
 		return
 	}
 
+	// Fix: Always use total_rooms as available_rooms if available_rooms is 0
+	for i := range hotels {
+		if hotels[i].AvailableRooms == 0 {
+			hotels[i].AvailableRooms = hotels[i].TotalRooms
+			log.Printf("✅ Set AvailableRooms to TotalRooms for %s: %d", hotels[i].Name, hotels[i].AvailableRooms)
+		}
+		log.Printf("DEBUG: Hotel %s - AvailableRooms: %d, TotalRooms: %d", hotels[i].Name, hotels[i].AvailableRooms, hotels[i].TotalRooms)
+	}
+
 	// Ensure we return an empty array instead of null
 	if hotels == nil {
 		hotels = []Hotel{}
+	}
+
+	// Store in Redis cache with 1 hour TTL
+	if redisCache != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := redisCache.Set(ctx, cacheKey, hotels, 1*time.Hour)
+		if err != nil {
+			log.Printf("⚠️  Failed to cache hotels: %v", err)
+		} else {
+			log.Printf("✅ Cached hotels with key: %s", cacheKey)
+		}
 	}
 
 	c.JSON(http.StatusOK, hotels)
@@ -141,5 +191,110 @@ func GetAvailableRooms(c *gin.Context) {
 		"check_in":  checkIn,
 		"check_out": checkOut,
 		"rooms":     rooms,
+	})
+}
+
+// BookingRequest represents a booking request from the frontend
+type BookingRequestPayload struct {
+	UserID       string  `json:"userId"`
+	HotelID      string  `json:"hotelId" binding:"required"`
+	HotelName    string  `json:"hotelName" binding:"required"`
+	CheckInDate  string  `json:"checkInDate" binding:"required"`
+	CheckOutDate string  `json:"checkOutDate" binding:"required"`
+	Rooms        int     `json:"rooms" binding:"required"`
+	Adults       int     `json:"adults" binding:"required"`
+	Children     int     `json:"children"`
+	TotalPrice   float64 `json:"totalPrice" binding:"required"`
+}
+
+// StartBookingRequest represents the initial booking request
+type StartBookingRequest struct {
+	UserID       string  `json:"userId" binding:"required"`
+	HotelID      string  `json:"hotelId" binding:"required"`
+	HotelName    string  `json:"hotelName" binding:"required"`
+	CheckInDate  string  `json:"checkInDate" binding:"required"`
+	CheckOutDate string  `json:"checkOutDate" binding:"required"`
+	Rooms        int     `json:"rooms" binding:"required"`
+	Adults       int     `json:"adults" binding:"required"`
+	Children     int     `json:"children"`
+	TotalPrice   float64 `json:"totalPrice" binding:"required"`
+}
+
+// StartBooking handles the initial booking request from frontend
+// This endpoint validates the booking data and prepares it for Kafka publishing
+func StartBooking(c *gin.Context) {
+	var req StartBookingRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("❌ Invalid start booking request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid booking request", "details": err.Error()})
+		return
+	}
+
+	// Validate required fields
+	if req.UserID == "" || req.HotelID == "" {
+		log.Printf("❌ Missing required fields: UserID=%s, HotelID=%s", req.UserID, req.HotelID)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing required fields: userId, hotelId"})
+		return
+	}
+
+	log.Printf("📨 Start booking initiated: User=%s, Hotel=%s", req.UserID, req.HotelID)
+
+	// Return booking data for confirmation
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Booking data validated and ready for confirmation",
+		"bookingData": req,
+		"status":      "PENDING_CONFIRMATION",
+	})
+}
+
+// CreateBooking handles booking creation via Kafka
+// This is called after user confirms the booking from StartBooking
+func CreateBooking(c *gin.Context) {
+	var req BookingRequestPayload
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("❌ Invalid booking request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid booking request", "details": err.Error()})
+		return
+	}
+
+	// Extract user ID from header if not in body
+	if req.UserID == "" {
+		req.UserID = c.GetHeader("X-User-Id")
+	}
+
+	// Validate required fields
+	if req.UserID == "" || req.HotelID == "" {
+		log.Printf("❌ Missing required fields: UserID=%s, HotelID=%s", req.UserID, req.HotelID)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing required fields: userId, hotelId"})
+		return
+	}
+
+	// Convert to Kafka booking request
+	bookingReq := kafka.BookingRequest{
+		UserID:       req.UserID,
+		HotelID:      req.HotelID,
+		HotelName:    req.HotelName,
+		CheckInDate:  req.CheckInDate,
+		CheckOutDate: req.CheckOutDate,
+		Rooms:        req.Rooms,
+		Adults:       req.Adults,
+		Children:     req.Children,
+		TotalPrice:   req.TotalPrice,
+	}
+
+	// Publish to Kafka (booking-requests topic on kafka-booking instance)
+	if err := kafka.PublishBookingRequest(bookingReq); err != nil {
+		log.Printf("❌ Failed to publish booking request: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create booking", "details": err.Error()})
+		return
+	}
+
+	log.Printf("✅ Booking request published to Kafka: User=%s, Hotel=%s", req.UserID, req.HotelID)
+	c.JSON(http.StatusAccepted, gin.H{
+		"message": "Booking request received and queued for processing",
+		"userId":  req.UserID,
+		"hotelId": req.HotelID,
 	})
 }

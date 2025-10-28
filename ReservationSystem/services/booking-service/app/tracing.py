@@ -28,22 +28,33 @@ def init_tracing(service_name: str = "booking-service"):
     trace.set_tracer_provider(TracerProvider(resource=resource))
     tracer_provider = trace.get_tracer_provider()
 
-    # Create Jaeger exporter
-    jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "http://jaeger-collector:14268/api/traces")
-    jaeger_exporter = JaegerExporter(
-        collector_endpoint=jaeger_endpoint,
-    )
+    # Only enable Jaeger if explicitly configured
+    enable_jaeger = os.getenv("ENABLE_JAEGER", "false").lower() == "true"
 
-    # Create span processor
-    span_processor = BatchSpanProcessor(jaeger_exporter)
-    tracer_provider.add_span_processor(span_processor)
+    if enable_jaeger:
+        try:
+            # Create Jaeger exporter
+            jaeger_endpoint = os.getenv("JAEGER_ENDPOINT", "http://jaeger-collector:14268/api/traces")
+            jaeger_exporter = JaegerExporter(
+                collector_endpoint=jaeger_endpoint,
+            )
+
+            # Create span processor
+            span_processor = BatchSpanProcessor(jaeger_exporter)
+            tracer_provider.add_span_processor(span_processor)
+            logger.info(f"🔍 OpenTelemetry tracing initialized with Jaeger for {service_name}")
+        except Exception as e:
+            logger.warning(f"⚠️  Could not initialize Jaeger tracing: {e}. Continuing without tracing.")
+    else:
+        logger.info(f"🔍 OpenTelemetry tracing initialized (Jaeger disabled) for {service_name}")
 
     # Auto-instrument libraries (not FastAPI - that needs app instance)
-    SQLAlchemyInstrumentor().instrument()
-    RedisInstrumentor().instrument()
-    HTTPXClientInstrumentor().instrument()
-
-    logger.info(f"🔍 OpenTelemetry tracing initialized for {service_name}")
+    try:
+        SQLAlchemyInstrumentor().instrument()
+        RedisInstrumentor().instrument()
+        HTTPXClientInstrumentor().instrument()
+    except Exception as e:
+        logger.warning(f"⚠️  Could not instrument libraries: {e}")
 
     return tracer_provider
 

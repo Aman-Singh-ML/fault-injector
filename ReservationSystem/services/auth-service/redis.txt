@@ -1,0 +1,139 @@
+================================================================================
+REDIS COMMANDS FOR AUTH SERVICE
+================================================================================
+
+Redis Instance: hotel-redis-auth
+Port: 6380
+Container: hotel-redis-auth
+
+================================================================================
+CONNECT TO REDIS
+================================================================================
+
+# Using redis-cli from Docker
+docker exec -it hotel-redis-auth redis-cli
+
+# Or from host machine (if redis-cli is installed)
+redis-cli -p 6380
+
+================================================================================
+VIEW CACHED USER PROFILES
+================================================================================
+
+# Get all keys in Redis
+KEYS *
+
+# Get all user profile keys
+KEYS "users:*"
+
+# Get specific user profile by email
+GET "users:user@example.com"
+
+# Get user profile with pattern matching
+KEYS "users:*@gmail.com"
+
+================================================================================
+CACHE OPERATIONS
+================================================================================
+
+# View cache statistics
+INFO stats
+
+# View memory usage
+INFO memory
+
+# View all keys with their TTL
+SCAN 0 MATCH "users:*"
+
+# Get TTL of a key (time to live in seconds)
+TTL "users:user@example.com"
+
+# Get PTTL of a key (time to live in milliseconds)
+PTTL "users:user@example.com"
+
+================================================================================
+CLEAR CACHE
+================================================================================
+
+# Delete specific user cache
+DEL "users:user@example.com"
+
+# Delete all user caches
+FLUSHDB
+
+# Delete all data in Redis
+FLUSHALL
+
+================================================================================
+MONITOR CACHE HITS/MISSES
+================================================================================
+
+# Monitor all commands in real-time
+MONITOR
+
+# Get cache statistics
+INFO stats
+
+# Get keyspace statistics
+INFO keyspace
+
+================================================================================
+PROFILE CACHING FLOW
+================================================================================
+
+1. User logs in or requests profile
+2. Auth Service checks Redis cache for user profile
+3. If found in cache (cache hit):
+   - Return cached profile immediately
+   - Faster response time
+4. If not found in cache (cache miss):
+   - Query PostgreSQL database
+   - Store result in Redis with TTL (1 hour)
+   - Return profile to user
+
+Cache Key Format: "users:{email}"
+Cache TTL: 3600 seconds (1 hour)
+
+================================================================================
+EXAMPLE REDIS COMMANDS
+================================================================================
+
+# Connect to Redis
+docker exec -it hotel-redis-auth redis-cli
+
+# View all cached users
+> KEYS *
+
+# Get a specific user profile
+> GET "users:john@example.com"
+
+# View cache statistics
+> INFO stats
+
+# Monitor cache operations
+> MONITOR
+
+# Clear all cache
+> FLUSHDB
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+# Check if Redis is running
+docker ps | grep hotel-redis-auth
+
+# View Redis logs
+docker logs hotel-redis-auth
+
+# Check Redis connectivity
+docker exec -it hotel-redis-auth redis-cli ping
+
+# Check Redis memory usage
+docker exec -it hotel-redis-auth redis-cli INFO memory
+
+# Check number of keys
+docker exec -it hotel-redis-auth redis-cli DBSIZE
+
+================================================================================
+

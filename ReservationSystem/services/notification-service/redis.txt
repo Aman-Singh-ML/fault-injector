@@ -1,0 +1,146 @@
+================================================================================
+REDIS COMMANDS FOR NOTIFICATION SERVICE
+================================================================================
+
+Redis Instance: hotel-redis-notification
+Port: 6384
+Container: hotel-redis-notification
+
+================================================================================
+CONNECT TO REDIS
+================================================================================
+
+# Using redis-cli from Docker
+docker exec -it hotel-redis-notification redis-cli
+
+# Or from host machine (if redis-cli is installed)
+redis-cli -p 6384
+
+================================================================================
+VIEW CACHED NOTIFICATION DATA
+================================================================================
+
+# Get all keys in Redis
+KEYS *
+
+# Get all notification cache keys
+KEYS "notification:*"
+
+# Get specific notification by ID
+GET "notification:123"
+
+# Get all notifications for a user
+KEYS "notification:user:*"
+
+# Get notifications with pattern matching
+KEYS "notification:*"
+
+================================================================================
+CACHE OPERATIONS
+================================================================================
+
+# View cache statistics
+INFO stats
+
+# View memory usage
+INFO memory
+
+# View all keys with their TTL
+SCAN 0 MATCH "notification:*"
+
+# Get TTL of a key (time to live in seconds)
+TTL "notification:123"
+
+# Get PTTL of a key (time to live in milliseconds)
+PTTL "notification:123"
+
+================================================================================
+CLEAR CACHE
+================================================================================
+
+# Delete specific notification cache
+DEL "notification:123"
+
+# Delete all notification caches for a user
+DEL "notification:user:456"
+
+# Delete all notification caches
+FLUSHDB
+
+# Delete all data in Redis
+FLUSHALL
+
+================================================================================
+MONITOR CACHE HITS/MISSES
+================================================================================
+
+# Monitor all commands in real-time
+MONITOR
+
+# Get cache statistics
+INFO stats
+
+# Get keyspace statistics
+INFO keyspace
+
+================================================================================
+NOTIFICATION CACHING FLOW
+================================================================================
+
+1. Notification event received from Kafka
+2. Notification Service processes and stores in MongoDB
+3. Notification data is cached in Redis with TTL (1 hour)
+4. When notification is retrieved:
+   - Check Redis cache first (cache hit = faster response)
+   - If not in cache, query MongoDB (cache miss)
+   - Store result in Redis for future requests
+
+Cache Key Format: "notification:{notification_id}" or "notification:user:{user_id}"
+Cache TTL: 3600 seconds (1 hour)
+
+================================================================================
+EXAMPLE REDIS COMMANDS
+================================================================================
+
+# Connect to Redis
+docker exec -it hotel-redis-notification redis-cli
+
+# View all cached notifications
+> KEYS *
+
+# Get specific notification
+> GET "notification:123"
+
+# Get all notifications for user
+> KEYS "notification:user:456"
+
+# View cache statistics
+> INFO stats
+
+# Monitor cache operations
+> MONITOR
+
+# Clear all cache
+> FLUSHDB
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+# Check if Redis is running
+docker ps | grep hotel-redis-notification
+
+# View Redis logs
+docker logs hotel-redis-notification
+
+# Check Redis connectivity
+docker exec -it hotel-redis-notification redis-cli ping
+
+# Check Redis memory usage
+docker exec -it hotel-redis-notification redis-cli INFO memory
+
+# Check number of keys
+docker exec -it hotel-redis-notification redis-cli DBSIZE
+
+================================================================================
+

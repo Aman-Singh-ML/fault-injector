@@ -102,13 +102,17 @@ export default function HotelCard({ hotel }: HotelCardProps) {
 
         {/* Availability */}
         <div className="mt-2 text-xs text-gray-500">
-          {hotel.available_rooms > 0 ? (
-            <span className="text-green-600">
-              {hotel.available_rooms} rooms available
-            </span>
-          ) : (
-            <span className="text-red-600">No rooms available</span>
-          )}
+          {(() => {
+            // Handle both field names: available_rooms and rooms_available
+            const availableRooms = (hotel as any).available_rooms || (hotel as any).rooms_available || 0;
+            return availableRooms > 0 ? (
+              <span className="text-green-600">
+                {availableRooms} rooms available
+              </span>
+            ) : (
+              <span className="text-red-600">No rooms available</span>
+            );
+          })()}
         </div>
       </div>
     </div>

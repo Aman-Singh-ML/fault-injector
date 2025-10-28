@@ -4,16 +4,26 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { FaHotel, FaBell, FaUser, FaSignOutAlt, FaHome, FaSearch, FaCalendarAlt, FaInfoCircle, FaCog } from 'react-icons/fa';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useNotifications } from '@/hooks/useNotifications';
 
 export default function Navbar() {
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuthStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
 
-  // Use real-time notifications hook
-  const { unreadCount } = useNotifications();
+  // Use lazy-loaded notifications hook - only fetch when user clicks
+  const { unreadCount, notifications, fetchNotifications } = useNotifications();
+
+  // Handle notification icon click - fetch on demand
+  const handleNotificationClick = useCallback(async () => {
+    setShowNotifications(!showNotifications);
+    if (!showNotifications) {
+      // Only fetch when opening notifications
+      await fetchNotifications();
+    }
+  }, [showNotifications, fetchNotifications]);
 
   const handleLogout = () => {
     logout();
@@ -85,21 +95,71 @@ export default function Navbar() {
           <div className="flex items-center space-x-4">
             {isAuthenticated ? (
               <>
-                <Link
-                  href="/notifications"
-                  className="relative p-2 text-gray-600 hover:text-primary-600 transition-colors"
-                  title={unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}` : 'Notifications'}
-                >
-                  <FaBell className="text-xl" />
-                  {unreadCount > 0 && (
-                    <>
-                      {/* Unread count badge */}
-                      <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] text-xs font-bold text-white bg-red-500 rounded-full px-1 animate-pulse shadow-lg">
-                        {unreadCount > 99 ? '99+' : unreadCount}
-                      </span>
-                    </>
+                <div className="relative">
+                  <button
+                    onClick={handleNotificationClick}
+                    className="relative p-2 text-gray-600 hover:text-primary-600 transition-colors"
+                    title={unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}` : 'Notifications'}
+                  >
+                    <FaBell className="text-xl" />
+                    {unreadCount > 0 && (
+                      <>
+                        {/* Unread count badge */}
+                        <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-[18px] text-xs font-bold text-white bg-red-500 rounded-full px-1 animate-pulse shadow-lg">
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Notification Panel */}
+                  {showNotifications && (
+                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-md shadow-xl py-2 z-50 max-h-96 overflow-y-auto">
+                      {notifications && notifications.length > 0 ? (
+                        <>
+                          <div className="px-4 py-2 border-b border-gray-200">
+                            <p className="text-sm font-semibold text-gray-900">
+                              Notifications ({notifications.length})
+                            </p>
+                          </div>
+                          <div className="divide-y divide-gray-100">
+                            {notifications.map((notification: any) => (
+                              <div
+                                key={notification._id || notification.id}
+                                className="px-4 py-3 hover:bg-gray-50 transition-colors"
+                              >
+                                <p className="text-sm text-gray-900 font-medium">
+                                  {notification.title || notification.message}
+                                </p>
+                                {notification.title && (
+                                  <p className="text-xs text-gray-600 mt-1">
+                                    {notification.message}
+                                  </p>
+                                )}
+                                <p className="text-xs text-gray-400 mt-1">
+                                  {new Date(notification.createdAt).toLocaleString()}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="px-4 py-2 border-t border-gray-200 text-center">
+                            <Link
+                              href="/notifications"
+                              className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                              onClick={() => setShowNotifications(false)}
+                            >
+                              View all notifications
+                            </Link>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="px-4 py-8 text-center">
+                          <p className="text-sm text-gray-500">No notifications</p>
+                        </div>
+                      )}
+                    </div>
                   )}
-                </Link>
+                </div>
 
                 <div className="relative">
                   <button

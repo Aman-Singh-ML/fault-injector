@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hotel/search-service/internal/cache"
 	"github.com/hotel/search-service/internal/handlers"
+	"github.com/hotel/search-service/internal/kafka"
 	"github.com/hotel/search-service/internal/tracing"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -77,6 +79,22 @@ func main() {
 	// Set MongoDB client in handlers
 	handlers.SetMongoClient(client)
 
+	// Initialize Redis cache for search service (port 6381)
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6381"
+	}
+	redisCache := cache.NewRedisCache(redisAddr)
+	handlers.SetRedisCache(redisCache)
+	log.Printf("✅ Connected to Redis at %s", redisAddr)
+
+	// Initialize Kafka producer
+	if err := kafka.InitProducer(); err != nil {
+		log.Printf("⚠️  Warning: Failed to initialize Kafka producer: %v", err)
+		// Don't fail startup if Kafka is not available
+	}
+	defer kafka.CloseProducer()
+
 	// Set Gin mode
 	gin.SetMode(gin.ReleaseMode)
 
@@ -103,6 +121,11 @@ func main() {
 	router.GET("/search/hotels/:id", handlers.GetHotelDetails) // Hotel details
 	router.GET("/hotels/:id", handlers.GetHotelDetails)
 	router.GET("/hotels/:id/rooms", handlers.GetAvailableRooms)
+
+	// Booking routes (via Kafka)
+	router.POST("/search/start-booking", handlers.StartBooking) // Initial booking request
+	router.POST("/search/book", handlers.CreateBooking)         // Confirm and publish to Kafka
+	router.POST("/book", handlers.CreateBooking)
 
 	// Admin routes
 	router.GET("/admin/hotels", handlers.GetAllHotelsAdmin)

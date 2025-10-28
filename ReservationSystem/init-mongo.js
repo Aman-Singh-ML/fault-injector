@@ -3,6 +3,9 @@
 // Switch to hotel database
 db = db.getSiblingDB('hotel_db');
 
+// Drop existing collection if it exists
+db.hotels.drop();
+
 // Create hotels collection with sample data
 db.hotels.insertMany([
   {

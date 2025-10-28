@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const serviceProxy = require('../utils/serviceProxy');
 
-const BOOKING_SERVICE_URL = process.env.BOOKING_SERVICE_URL || 'http://localhost:8083';
+const BOOKING_SERVICE_URL = process.env.BOOKING_SERVICE_URL || 'http://localhost:8000';
 
 // Get all bookings for user
 router.get('/', async (req, res, next) => {

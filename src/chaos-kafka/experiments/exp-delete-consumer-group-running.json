@@ -1,0 +1,124 @@
+{
+  "version": "1.0.0",
+  "title": "Delete Consumer Group While Producing and Consuming",
+  "description": "Simulate producing and consuming messages on booking-events while deleting the notification-service consumer group and verify system recovery.",
+  "configuration": {
+    "bootstrap_servers": {
+      "type": "env",
+      "key": "BOOTSTRAP_SERVERS"
+    },
+    "topic": "booking-events",
+    "group_id": "notification-service"
+  },
+  "steady-state-hypothesis": {
+    "title": "Lag and replicas are within normal bounds",
+    "probes": [
+      {
+        "type": "probe",
+        "name": "check_consumer_lag",
+        "tolerance": true,
+        "provider": {
+          "type": "python",
+          "module": "chaoskafka.probes",
+          "func": "check_consumer_lag_under_threshold",
+          "arguments": {
+            "bootstrap_servers": "${bootstrap_servers}",
+            "group_id": "${group_id}",
+            "topic": "${topic}",
+            "threshold": 15
+          }
+        }
+      },
+      {
+        "type": "probe",
+        "name": "check_replicas_in_sync",
+        "tolerance": true,
+        "provider": {
+          "type": "python",
+          "module": "chaoskafka.probes",
+          "func": "all_replicas_in_sync",
+          "arguments": {
+            "bootstrap_servers": "${bootstrap_servers}"
+          }
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "type": "action",
+      "name": "produce_messages",
+      "provider": {
+        "type": "python",
+        "module": "chaoskafka.actions",
+        "func": "produce_messages",
+        "arguments": {
+          "bootstrap_servers": "${bootstrap_servers}",
+          "topic": "${topic}",
+          "messages": [
+            "event-1", "event-2", "event-3", "event-4", "event-5"
+          ]
+        }
+      }
+    },
+    {
+      "type": "action",
+      "name": "consume_messages",
+      "provider": {
+        "type": "python",
+        "module": "chaoskafka.actions",
+        "func": "consume_messages",
+        "arguments": {
+          "bootstrap_servers": "${bootstrap_servers}",
+          "group_id": "${group_id}",
+          "topic": "${topic}",
+          "timeout": 10000,
+          "max_messages": 10
+        }
+      }
+    },
+    {
+      "type": "action",
+      "name": "delete_consumer_group",
+      "provider": {
+        "type": "python",
+        "module": "chaoskafka.actions",
+        "func": "delete_consumer_group",
+        "arguments": {
+          "bootstrap_servers": "${bootstrap_servers}",
+          "group_id": "${group_id}"
+        }
+      }
+    },
+    {
+      "type": "probe",
+      "name": "check_consumer_lag_after",
+      "tolerance": true,
+      "provider": {
+        "type": "python",
+        "module": "chaoskafka.probes",
+        "func": "check_consumer_lag_under_threshold",
+        "arguments": {
+          "bootstrap_servers": "${bootstrap_servers}",
+          "group_id": "${group_id}",
+          "topic": "${topic}",
+          "threshold": 15
+        }
+      }
+    },
+    {
+      "type": "probe",
+      "name": "check_replicas_in_sync_after",
+      "tolerance": true,
+      "provider": {
+        "type": "python",
+        "module": "chaoskafka.probes",
+        "func": "all_replicas_in_sync",
+        "arguments": {
+          "bootstrap_servers": "${bootstrap_servers}"
+        }
+      }
+    }
+  ],
+  "rollbacks": []
+}

@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import { bookingsAPI } from '@/lib/api';
 import { Booking } from '@/types';
 import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
 import toast from 'react-hot-toast';
 import { FaSpinner, FaCalendarAlt, FaMapMarkerAlt, FaUsers, FaDollarSign, FaCheckCircle, FaClock, FaTimesCircle } from 'react-icons/fa';
 import { format } from 'date-fns';
@@ -39,9 +40,23 @@ export default function ReservationsPage() {
     setLoading(true);
     try {
       const response = await bookingsAPI.getAll();
-      setBookings(response.data);
+
+      // Handle different response formats
+      let bookingsList: any[] = [];
+      if (Array.isArray(response)) {
+        bookingsList = response;
+      } else if ((response as any).data && Array.isArray((response as any).data)) {
+        bookingsList = (response as any).data;
+      } else if ((response as any).bookings && Array.isArray((response as any).bookings)) {
+        bookingsList = (response as any).bookings;
+      }
+
+      console.log('Fetched bookings:', bookingsList);
+      setBookings(bookingsList);
     } catch (error: any) {
-      toast.error('Failed to fetch bookings');
+      console.error('Error fetching bookings:', error);
+      toast.error(error.message || 'Failed to fetch bookings');
+      setBookings([]);
     } finally {
       setLoading(false);
     }
@@ -230,6 +245,7 @@ export default function ReservationsPage() {
           </div>
         )}
       </div>
+      <Footer />
     </div>
   );
 }

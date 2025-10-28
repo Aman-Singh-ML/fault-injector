@@ -11,9 +11,17 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	_ "github.com/lib/pq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+var redisClient *redis.Client
+
+// SetRedisClient sets the Redis client for payment handlers
+func SetRedisClient(client *redis.Client) {
+	redisClient = client
+}
 
 // FlexibleString can unmarshal both string and number
 type FlexibleString string

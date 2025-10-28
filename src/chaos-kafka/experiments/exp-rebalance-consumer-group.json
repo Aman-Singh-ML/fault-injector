@@ -1,0 +1,69 @@
+{
+  "version": "1.0.0",
+  "title": "Rebalance Kafka Consumer Group During Active Load",
+  "description": "Force rebalance of the notification-service Kafka consumer group (booking-events topic) and verify that consumer lag stays under threshold.",
+  "configuration": {
+    "bootstrap_servers": {
+      "type": "env",
+      "key": "BOOTSTRAP_SERVERS"
+    },
+    "topic": "booking-events",
+    "group_id": "notification-service"
+  },
+  "steady-state-hypothesis": {
+    "title": "Consumer lag remains under acceptable threshold",
+    "probes": [
+      {
+        "type": "probe",
+        "name": "check_consumer_lag_normal",
+        "tolerance": true,
+        "provider": {
+          "type": "python",
+          "module": "chaoskafka.probes",
+          "func": "check_consumer_lag_under_threshold",
+          "arguments": {
+            "bootstrap_servers": "${bootstrap_servers}",
+            "group_id": "${group_id}",
+            "topic": "${topic}",
+            "threshold": 15
+          }
+        }
+      }
+    ]
+  },
+  "method": [
+    {
+      "type": "action",
+      "name": "rebalance_consumer_group",
+      "provider": {
+        "type": "python",
+        "module": "chaoskafka.actions",
+        "func": "rebalance_consumer_group",
+        "arguments": {
+          "bootstrap_servers": "${bootstrap_servers}",
+          "group_id": "${group_id}",
+          "topic": "${topic}"
+        }
+      },
+      "pauses": {
+        "after": 15
+      }
+    },
+    {
+      "type": "probe",
+      "name": "check_consumer_lag_after_rebalance",
+      "provider": {
+        "type": "python",
+        "module": "chaoskafka.probes",
+        "func": "check_consumer_lag_under_threshold",
+        "arguments": {
+          "bootstrap_servers": "${bootstrap_servers}",
+          "group_id": "${group_id}",
+          "topic": "${topic}",
+          "threshold": 15
+        }
+      }
+    }
+  ],
+  "rollbacks": []
+}

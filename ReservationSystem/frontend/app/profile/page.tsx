@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { authAPI } from '@/lib/api';
 import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
 import toast from 'react-hot-toast';
 import { FaUser, FaEnvelope, FaPhone, FaSave } from 'react-icons/fa';
 
@@ -34,25 +35,57 @@ export default function ProfilePage() {
       return;
     }
 
-    if (user) {
-      setFormData({
-        firstName: user.firstName || '',
-        lastName: user.lastName || '',
-        email: user.email || '',
-        phoneNumber: user.phoneNumber || '',
-      });
-    }
-  }, [isAuthenticated, isHydrated, user, router]);
+    // Fetch fresh profile data from server (this will cache it in Redis)
+    const fetchProfile = async () => {
+      try {
+        setLoading(true);
+        const response = await authAPI.getProfile();
+        if (response.data?.user) {
+          updateUser(response.data.user);
+          setFormData({
+            firstName: response.data.user.firstName || '',
+            lastName: response.data.user.lastName || '',
+            email: response.data.user.email || '',
+            phoneNumber: response.data.user.phoneNumber || '',
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+        toast.error('Failed to fetch profile data');
+        // If fetch fails, use cached user data
+        if (user) {
+          setFormData({
+            firstName: user.firstName || '',
+            lastName: user.lastName || '',
+            email: user.email || '',
+            phoneNumber: user.phoneNumber || '',
+          });
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfile();
+  }, [isAuthenticated, isHydrated, router, updateUser]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
+      console.log('💾 Saving profile changes:', formData);
       const response = await authAPI.updateProfile(formData);
-      updateUser(response.data);
-      toast.success('Profile updated successfully');
+
+      if (response.data?.user) {
+        // Update global auth store with new data
+        updateUser(response.data.user);
+        toast.success('Profile updated successfully');
+      } else {
+        throw new Error('No user data in response');
+      }
     } catch (error: any) {
+      console.error('❌ Error updating profile:', error);
       toast.error(error.response?.data?.message || 'Failed to update profile');
     } finally {
       setLoading(false);
@@ -209,7 +242,7 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }
-

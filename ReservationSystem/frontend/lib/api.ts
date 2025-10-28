@@ -9,15 +9,33 @@ const api = axios.create({
   },
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token and handle caching
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
+      // Add timestamp to prevent browser caching for GET requests
+      if (config.method?.toLowerCase() === 'get') {
+        config.params = {
+          ...config.params,
+          _t: new Date().getTime()
+        };
+      }
+
       const authStorage = localStorage.getItem('auth-storage');
       if (authStorage) {
-        const { state } = JSON.parse(authStorage);
-        if (state?.token) {
-          config.headers.Authorization = `Bearer ${state.token}`;
+        try {
+          const { state } = JSON.parse(authStorage);
+          if (state?.token) {
+            config.headers.Authorization = `Bearer ${state.token}`;
+            // Ensure content type is set
+            config.headers['Content-Type'] = 'application/json';
+            // Add cache control headers
+            config.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+            config.headers['Pragma'] = 'no-cache';
+            config.headers['Expires'] = '0';
+          }
+        } catch (error) {
+          console.error('Error parsing auth storage:', error);
         }
       }
     }
@@ -56,11 +74,39 @@ export const authAPI = {
     phoneNumber: string;
   }) => api.post('/auth/register', data),
 
-  getProfile: () => api.get('/auth/profile'),
+  getProfile: () => {
+    console.log('📡 Fetching profile from server...');
+    return api.get('/auth/profile', {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
+    });
+  },
 
-  updateProfile: (data: any) => api.put('/auth/profile', data),
+  updateProfile: (data: {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phoneNumber?: string;
+  }) => {
+    console.log('📡 Updating profile...', data);
+    return api.put('/auth/profile', data, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      }
+    });
+  },
 
   verifyToken: () => api.post('/auth/verify'),
+
+  clearCache: () => {
+    if (typeof window !== 'undefined') {
+      console.log('🧹 Clearing profile cache...');
+      localStorage.removeItem('profile-cache');
+    }
+  }
 };
 
 // Hotels API (Search Service)
@@ -78,7 +124,7 @@ export const hotelsAPI = {
   getById: (id: string) => api.get(`/search/hotels/${id}`),
 };
 
-// Bookings API (Booking Service)
+// Bookings API (Search Service publishes to Kafka, Booking Service consumes)
 export const bookingsAPI = {
   create: (data: {
     userId: string;
@@ -90,7 +136,7 @@ export const bookingsAPI = {
     adults: number;
     children: number;
     totalPrice: number;
-  }) => api.post('/booking/bookings', data),
+  }) => api.post('/search/book', data),
 
   checkAvailability: (data: {
     hotelId: string;
@@ -189,4 +235,3 @@ export const adminAPI = {
   // Analytics (aggregated from multiple services)
   getAnalytics: () => api.get('/auth/admin/analytics'),
 };
-

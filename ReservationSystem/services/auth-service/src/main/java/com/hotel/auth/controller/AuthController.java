@@ -57,12 +57,13 @@ public class AuthController {
         try {
             String token = authHeader.substring(7); // Remove "Bearer " prefix
             String email = jwtService.extractEmail(token);
-            
+
             if (jwtService.isTokenValid(token, email)) {
+                //todo replace here
                 User user = authService.getUserByEmail(email);
                 return ResponseEntity.ok(Map.of("user", getUserInfo(user)));
             }
-            
+
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid token"));
         } catch (Exception e) {
@@ -70,7 +71,52 @@ public class AuthController {
                     .body(Map.of("error", "Token verification failed"));
         }
     }
-   
+
+    @GetMapping("/profile")
+    public ResponseEntity<?> getProfile(@RequestHeader("Authorization") String authHeader) {
+        try {
+            String token = authHeader.substring(7); // Remove "Bearer " prefix
+            String email = jwtService.extractEmail(token);
+            System.out.println("🔍 Profile endpoint called for email: " + email);
+
+            if (jwtService.isTokenValid(token, email)) {
+                // Load from cached data (Redis)
+                System.out.println("✅ Token valid, calling getUserByEmail...");
+                User user = authService.getUserByEmail(email);
+                System.out.println("✅ User retrieved: " + user.getEmail());
+                return ResponseEntity.ok(Map.of("user", getUserInfo(user)));
+            }
+
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid token"));
+        } catch (Exception e) {
+            System.out.println("❌ Error in profile endpoint: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Failed to get profile: " + e.getMessage()));
+        }
+    }
+
+    @PutMapping("/profile")
+    public ResponseEntity<?> updateProfile(@RequestHeader("Authorization") String authHeader, @RequestBody UpdateProfileRequest request) {
+        try {
+            String token = authHeader.substring(7); // Remove "Bearer " prefix
+            String email = jwtService.extractEmail(token);
+
+            if (jwtService.isTokenValid(token, email)) {
+                User user = authService.updateProfile(email, request);
+                return ResponseEntity.ok(Map.of("user", getUserInfo(user)));
+            }
+
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Invalid token"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Failed to update profile: " + e.getMessage()));
+        }
+    }
+
+
     private Map<String, Object> getUserInfo(User user) {
         Map<String, Object> userInfo = new HashMap<>();
         userInfo.put("id", user.getId());
@@ -80,36 +126,50 @@ public class AuthController {
         userInfo.put("role", user.getRole());
         return userInfo;
     }
-}
 
-class RegisterRequest {
-    private String email;
-    private String password;
-    private String firstName;
-    private String lastName;
-    private String phoneNumber;
-    
-    // Getters and setters
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-    public String getPassword() { return password; }
-    public void setPassword(String password) { this.password = password; }
-    public String getFirstName() { return firstName; }
-    public void setFirstName(String firstName) { this.firstName = firstName; }
-    public String getLastName() { return lastName; }
-    public void setLastName(String lastName) { this.lastName = lastName; }
-    public String getPhoneNumber() { return phoneNumber; }
-    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
-}
+    public static class RegisterRequest {
+        private String email;
+        private String password;
+        private String firstName;
+        private String lastName;
+        private String phoneNumber;
 
-class LoginRequest {
-    private String email;
-    private String password;
-    
-    // Getters and setters
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-    public String getPassword() { return password; }
-    public void setPassword(String password) { this.password = password; }
+        // Getters and setters
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
+        public String getFirstName() { return firstName; }
+        public void setFirstName(String firstName) { this.firstName = firstName; }
+        public String getLastName() { return lastName; }
+        public void setLastName(String lastName) { this.lastName = lastName; }
+        public String getPhoneNumber() { return phoneNumber; }
+        public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+    }
+
+    public static class LoginRequest {
+        private String email;
+        private String password;
+
+        // Getters and setters
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
+    }
+
+    public static class UpdateProfileRequest {
+        private String firstName;
+        private String lastName;
+        private String phoneNumber;
+
+        // Getters and setters
+        public String getFirstName() { return firstName; }
+        public void setFirstName(String firstName) { this.firstName = firstName; }
+        public String getLastName() { return lastName; }
+        public void setLastName(String lastName) { this.lastName = lastName; }
+        public String getPhoneNumber() { return phoneNumber; }
+        public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
+    }
 }
 

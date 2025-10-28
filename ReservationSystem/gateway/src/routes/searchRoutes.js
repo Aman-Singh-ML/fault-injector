@@ -2,14 +2,14 @@ const express = require('express');
 const router = express.Router();
 const serviceProxy = require('../utils/serviceProxy');
 
-const SEARCH_SERVICE_URL = process.env.SEARCH_SERVICE_URL || 'http://localhost:8082';
+const SEARCH_SERVICE_URL = process.env.SEARCH_SERVICE_URL || 'http://localhost:8081';
 
 // Search hotels
 router.get('/hotels', async (req, res, next) => {
   try {
-    const { location, checkIn, checkOut, guests, rooms } = req.query;
-    const response = await serviceProxy.get(`${SEARCH_SERVICE_URL}/search`, {
-      params: { location, checkIn, checkOut, guests, rooms }
+    const { city, checkIn, checkOut, guests, rooms, minPrice, maxPrice, minRating } = req.query;
+    const response = await serviceProxy.get(`${SEARCH_SERVICE_URL}/search/hotels`, {
+      params: { city, checkIn, checkOut, guests, rooms, minPrice, maxPrice, minRating }
     });
     res.json(response.data);
   } catch (error) {
