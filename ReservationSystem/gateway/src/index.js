@@ -12,6 +12,7 @@ import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import CircuitBreaker from 'opossum';
 import { metricsMiddleware, register } from './metrics.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 
 dotenv.config();
 const app = express();
@@ -71,7 +72,7 @@ const adminLimiter = rateLimit({
 // ============================================
 
 const circuitBreakerOptions = {
-  timeout: 10000, // If function takes longer than 10 seconds, trigger a failure
+  timeout: 90000, // If function takes longer than 90 seconds, trigger a failure (supports up to 60s broker lag + buffer)
   errorThresholdPercentage: 50, // When 50% of requests fail, open the circuit
   resetTimeout: 30000, // After 30 seconds, try again
   rollingCountTimeout: 10000, // Rolling window for error calculation
@@ -364,11 +365,8 @@ app.use("/payment", paymentLimiter, proxy(PAYMENT_SERVICE_URL, {
   }
 }));
 
-app.use("/notifications", proxy(NOTIFICATION_SERVICE_URL, {
-  proxyReqPathResolver: (req) => {
-    return `/notifications${req.url}`;
-  }
-}));
+// Use custom notification routes instead of direct proxy
+app.use("/notifications", notificationRoutes);
 
 // Additional admin routes for backward compatibility
 app.use("/admin/users", adminLimiter, verifyToken, proxy(AUTH_SERVICE_URL, {

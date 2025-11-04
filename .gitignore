@@ -8,3 +8,4 @@ journal.json
 __pycache__/
 *.py[cod]
 *.swp
+.idea/

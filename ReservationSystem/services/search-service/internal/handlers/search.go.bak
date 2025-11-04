@@ -287,6 +287,7 @@ func CreateBooking(c *gin.Context) {
 			log.Printf("Notification publish failed (non-blocking): %v", err)
 		}
 	}
+
 	if err := kafka.PublishBookingRequest(bookingReq); err != nil {
 		if ke, ok := err.(*kafka.KafkaError); ok {
 			c.JSON(http.StatusServiceUnavailable, gin.H{

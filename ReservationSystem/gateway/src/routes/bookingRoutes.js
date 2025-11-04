@@ -1,14 +1,17 @@
-const express = require('express');
-const router = express.Router();
-const serviceProxy = require('../utils/serviceProxy');
+import express from 'express';
+import serviceProxy from '../utils/serviceProxy.js';
 
+const router = express.Router();
 const BOOKING_SERVICE_URL = process.env.BOOKING_SERVICE_URL || 'http://localhost:8000';
 
 // Get all bookings for user
 router.get('/', async (req, res, next) => {
   try {
     const response = await serviceProxy.get(`${BOOKING_SERVICE_URL}/bookings`, {
-      headers: { 'user-id': req.user.id }
+      headers: {
+        'X-User-Id': req.user.id.toString(),
+        'X-User-Role': req.user.role || 'USER'
+      }
     });
     res.json(response.data);
   } catch (error) {
@@ -20,7 +23,10 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const response = await serviceProxy.get(`${BOOKING_SERVICE_URL}/bookings/${req.params.id}`, {
-      headers: { 'user-id': req.user.id }
+      headers: {
+        'X-User-Id': req.user.id.toString(),
+        'X-User-Role': req.user.role || 'USER'
+      }
     });
     res.json(response.data);
   } catch (error) {
@@ -32,7 +38,10 @@ router.get('/:id', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const response = await serviceProxy.post(`${BOOKING_SERVICE_URL}/bookings`, req.body, {
-      headers: { 'user-id': req.user.id }
+      headers: {
+        'X-User-Id': req.user.id.toString(),
+        'X-User-Role': req.user.role || 'USER'
+      }
     });
     res.status(201).json(response.data);
   } catch (error) {
@@ -44,7 +53,10 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     const response = await serviceProxy.put(`${BOOKING_SERVICE_URL}/bookings/${req.params.id}`, req.body, {
-      headers: { 'user-id': req.user.id }
+      headers: {
+        'X-User-Id': req.user.id.toString(),
+        'X-User-Role': req.user.role || 'USER'
+      }
     });
     res.json(response.data);
   } catch (error) {
@@ -56,7 +68,10 @@ router.put('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     const response = await serviceProxy.delete(`${BOOKING_SERVICE_URL}/bookings/${req.params.id}`, {
-      headers: { 'user-id': req.user.id }
+      headers: {
+        'X-User-Id': req.user.id.toString(),
+        'X-User-Role': req.user.role || 'USER'
+      }
     });
     res.json(response.data);
   } catch (error) {
@@ -64,5 +79,5 @@ router.delete('/:id', async (req, res, next) => {
   }
 });
 
-module.exports = router;
+export default router;
 

@@ -19,18 +19,28 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 # Initialize tracing
 init_tracing("booking-service")
 
-# Prometheus metrics
-http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status']
-)
+# Prometheus metrics - use try-except to handle re-registration
+try:
+    http_requests_total = Counter(
+        'http_requests_total',
+        'Total HTTP requests',
+        ['method', 'endpoint', 'status']
+    )
+except ValueError:
+    # Metric already registered, get it from registry
+    from prometheus_client import REGISTRY
+    http_requests_total = REGISTRY._names_to_collectors.get('http_requests_total')
 
-http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request latency',
-    ['method', 'endpoint']
-)
+try:
+    http_request_duration_seconds = Histogram(
+        'http_request_duration_seconds',
+        'HTTP request latency',
+        ['method', 'endpoint']
+    )
+except ValueError:
+    # Metric already registered, get it from registry
+    from prometheus_client import REGISTRY
+    http_request_duration_seconds = REGISTRY._names_to_collectors.get('http_request_duration_seconds')
 
 app = FastAPI(
     title="Booking Service",

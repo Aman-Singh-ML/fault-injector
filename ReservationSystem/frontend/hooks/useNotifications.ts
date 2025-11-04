@@ -12,12 +12,25 @@ export function useNotifications() {
   const fetchNotifications = useCallback(async () => {
     if (!user?.id) return;
 
+    console.log(`📡 Fetching notifications for user ${user.id} from ${API_URL}/notifications`);
+
     try {
-      const response = await fetch(`${API_URL}/notifications/${user.id}`);
+      const response = await fetch(`${API_URL}/notifications`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: user.id }),
+      });
+
+      console.log(`📥 Notification response status: ${response.status}`);
+
       if (!response.ok) {
         throw new Error(`Failed to fetch notifications: ${response.status}`);
       }
+
       const data = await response.json();
+      console.log('📦 Notification data received:', data);
 
       // Handle different response formats
       let notificationsList = [];
@@ -33,9 +46,9 @@ export function useNotifications() {
 
       setNotifications(notificationsList);
       setUnreadCount(unread);
-      console.log('✅ Notifications fetched on demand:', notificationsList.length);
+      console.log(`✅ Notifications loaded: ${notificationsList.length} total, ${unread} unread`);
     } catch (error) {
-      console.error('Failed to fetch notifications:', error);
+      console.error('❌ Failed to fetch notifications:', error);
       setNotifications([]);
       setUnreadCount(0);
     }

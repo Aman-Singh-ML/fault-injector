@@ -9,30 +9,16 @@ const api = axios.create({
   },
 });
 
-// Request interceptor to add auth token and handle caching
+// Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
-      // Add timestamp to prevent browser caching for GET requests
-      if (config.method?.toLowerCase() === 'get') {
-        config.params = {
-          ...config.params,
-          _t: new Date().getTime()
-        };
-      }
-
       const authStorage = localStorage.getItem('auth-storage');
       if (authStorage) {
         try {
           const { state } = JSON.parse(authStorage);
           if (state?.token) {
             config.headers.Authorization = `Bearer ${state.token}`;
-            // Ensure content type is set
-            config.headers['Content-Type'] = 'application/json';
-            // Add cache control headers
-            config.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-            config.headers['Pragma'] = 'no-cache';
-            config.headers['Expires'] = '0';
           }
         } catch (error) {
           console.error('Error parsing auth storage:', error);
@@ -204,13 +190,13 @@ export const paymentsAPI = {
 
 // Notifications API (Notification Service)
 export const notificationsAPI = {
-  getAll: (userId: string) => api.get(`/notifications/${userId}`),
+  getAll: (userId: string) => api.post(`/notifications`, { userId }),
 
   markAsRead: (id: string) => api.put(`/notifications/${id}/read`),
 
-  markAllAsRead: (userId: string) => api.put(`/notifications/user/${userId}/read-all`),
+  markAllAsRead: (userId: string) => api.post(`/notifications/read-all`, { userId }),
 
-  delete: (id: string) => api.delete(`/notifications/${id}`),
+  delete: (id: string) => api.post(`/notifications/delete`, { id }),
 };
 
 // Admin API

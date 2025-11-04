@@ -1,4 +1,4 @@
-const axios = require('axios');
+import axios from 'axios';
 
 const serviceProxy = axios.create({
   timeout: 30000,
@@ -42,5 +42,5 @@ serviceProxy.interceptors.response.use(
   }
 );
 
-module.exports = serviceProxy;
+export default serviceProxy;
 

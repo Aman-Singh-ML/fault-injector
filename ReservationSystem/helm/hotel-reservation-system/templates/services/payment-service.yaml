@@ -8,21 +8,24 @@ metadata:
   labels:
     {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.paymentService.name "context" .) | nindent 4 }}
 data:
-  # Database configuration
-  DATABASE_URL: {{ include "hotel-reservation.postgresUrl" (dict "host" .Values.postgresPayment.name "port" .Values.postgresPayment.service.port "database" .Values.postgresPayment.database.name "user" .Values.postgresPayment.database.user "password" .Values.postgresPayment.database.password) | quote }}
-  DB_HOST: {{ .Values.postgresPayment.name | quote }}
+  # Database configuration - Using Kubernetes DNS names
+  POSTGRES_URL: "postgresql://{{ .Values.postgresPayment.database.user }}:{{ .Values.postgresPayment.database.password }}@{{ .Values.postgresPayment.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.postgresPayment.service.port }}/{{ .Values.postgresPayment.database.name }}"
+  DB_HOST: "{{ .Values.postgresPayment.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
   DB_PORT: {{ .Values.postgresPayment.service.port | quote }}
   DB_USER: {{ .Values.postgresPayment.database.user | quote }}
   DB_PASSWORD: {{ .Values.postgresPayment.database.password | quote }}
   DB_NAME: {{ .Values.postgresPayment.database.name | quote }}
-  
-  # RabbitMQ configuration
-  RABBITMQ_URL: {{ include "hotel-reservation.rabbitmqUrl" (dict "host" .Values.rabbitmq.name "port" .Values.rabbitmq.service.amqpPort "user" .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER "password" .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS) | quote }}
-  RABBITMQ_HOST: {{ .Values.rabbitmq.name | quote }}
+
+  # RabbitMQ configuration - Using Kubernetes DNS names
+  RABBITMQ_URL: "amqp://{{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER }}:{{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS }}@{{ .Values.rabbitmq.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.rabbitmq.service.amqpPort }}/"
+  RABBITMQ_HOST: "{{ .Values.rabbitmq.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
   RABBITMQ_PORT: {{ .Values.rabbitmq.service.amqpPort | quote }}
   RABBITMQ_USER: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
   RABBITMQ_PASSWORD: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
-  
+
+  # Redis configuration - Using Kubernetes DNS names
+  REDIS_ADDR: "{{ .Values.redis.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.redis.service.port }}"
+
   # Application configuration
   {{- range $key, $value := .Values.paymentService.env }}
   {{ $key }}: {{ $value | quote }}

@@ -1,0 +1,4 @@
+docker exec -it hotel-kafka-booking bash
+
+cd /etc/kafka
+ls

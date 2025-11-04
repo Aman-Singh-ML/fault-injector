@@ -8,23 +8,22 @@ metadata:
   labels:
     {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.bookingService.name "context" .) | nindent 4 }}
 data:
-  # Database configuration
-  DATABASE_URL: {{ include "hotel-reservation.postgresPythonUrl" (dict "host" .Values.postgresBooking.name "port" .Values.postgresBooking.service.port "database" .Values.postgresBooking.database.name "user" .Values.postgresBooking.database.user "password" .Values.postgresBooking.database.password) | quote }}
-  DB_HOST: {{ .Values.postgresBooking.name | quote }}
+  # Database configuration - Using Kubernetes DNS names
+  DATABASE_URL: "postgresql://{{ .Values.postgresBooking.database.user }}:{{ .Values.postgresBooking.database.password }}@{{ .Values.postgresBooking.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.postgresBooking.service.port }}/{{ .Values.postgresBooking.database.name }}"
+  DB_HOST: "{{ .Values.postgresBooking.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
   DB_PORT: {{ .Values.postgresBooking.service.port | quote }}
   DB_USER: {{ .Values.postgresBooking.database.user | quote }}
   DB_PASSWORD: {{ .Values.postgresBooking.database.password | quote }}
   DB_NAME: {{ .Values.postgresBooking.database.name | quote }}
-  
-  # Redis configuration
-  REDIS_HOST: {{ .Values.redis.name | quote }}
+
+  # Redis configuration - Using Kubernetes DNS names
+  REDIS_HOST: "{{ .Values.redis.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
   REDIS_PORT: {{ .Values.redis.service.port | quote }}
-  REDIS_URL: {{ include "hotel-reservation.redisUrl" (dict "host" .Values.redis.name "port" .Values.redis.service.port) | quote }}
-  
-  # Kafka configuration
-  KAFKA_BOOTSTRAP_SERVERS: {{ include "hotel-reservation.kafkaBootstrapServers" . | quote }}
-  KAFKA_TOPIC_BOOKING_EVENTS: "booking-events"
-  
+
+  # Kafka configuration - Using Kubernetes DNS names
+  KAFKA_BOOTSTRAP_SERVERS: "{{ .Values.kafka.name }}-0.{{ .Values.kafka.name }}-headless.{{ .Values.global.namespace }}.svc.cluster.local:9092"
+  KAFKA_TOPIC: "booking-events"
+
   # Application configuration
   {{- range $key, $value := .Values.bookingService.env }}
   {{ $key }}: {{ $value | quote }}
@@ -66,7 +65,7 @@ spec:
         - /bin/sh
         - -c
         - |
-          until nc -z {{ .Values.postgresBooking.name }} {{ .Values.postgresBooking.service.port }}; do
+          until nc -z {{ .Values.postgresBooking.name }}.{{ .Values.global.namespace }}.svc.cluster.local {{ .Values.postgresBooking.service.port }}; do
             echo "Waiting for PostgreSQL to be ready..."
             sleep 2
           done
@@ -77,22 +76,24 @@ spec:
         - /bin/sh
         - -c
         - |
-          until nc -z {{ .Values.redis.name }} {{ .Values.redis.service.port }}; do
+          until nc -z {{ .Values.redis.name }}.{{ .Values.global.namespace }}.svc.cluster.local {{ .Values.redis.service.port }}; do
             echo "Waiting for Redis to be ready..."
             sleep 2
           done
           echo "Redis is ready!"
+      {{- if .Values.kafka.enabled }}
       - name: wait-for-kafka
         image: busybox:1.35
         command:
         - /bin/sh
         - -c
         - |
-          until nc -z hotel-reservation-kafka 9092; do
+          until nc -z {{ .Values.kafka.name }}-0.{{ .Values.kafka.name }}-headless.{{ .Values.global.namespace }}.svc.cluster.local 9092; do
             echo "Waiting for Kafka to be ready..."
             sleep 2
           done
           echo "Kafka is ready!"
+      {{- end }}
       containers:
       - name: {{ .Values.bookingService.name }}
         image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.bookingService.image.repository "tag" .Values.bookingService.image.tag) }}

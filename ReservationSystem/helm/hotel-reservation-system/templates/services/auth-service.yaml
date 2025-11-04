@@ -8,12 +8,17 @@ metadata:
   labels:
     {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.authService.name "context" .) | nindent 4 }}
 data:
-  # Database configuration
-  SPRING_DATASOURCE_URL: {{ include "hotel-reservation.postgresUrl" (dict "host" .Values.postgresAuth.name "port" .Values.postgresAuth.service.port "database" .Values.postgresAuth.database.name "user" .Values.postgresAuth.database.user "password" .Values.postgresAuth.database.password) | quote }}
+  # Database configuration - Using Kubernetes DNS names
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://{{ .Values.postgresAuth.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.postgresAuth.service.port }}/{{ .Values.postgresAuth.database.name }}"
   SPRING_DATASOURCE_USERNAME: {{ .Values.postgresAuth.database.user | quote }}
   SPRING_DATASOURCE_PASSWORD: {{ .Values.postgresAuth.database.password | quote }}
   SPRING_DATASOURCE_DRIVER_CLASS_NAME: "org.postgresql.Driver"
-  
+
+  # Redis configuration - Using Kubernetes DNS names
+  REDIS_HOST: "{{ .Values.redis.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
+  REDIS_PORT: {{ .Values.redis.service.port | quote }}
+  REDIS_PASSWORD: ""
+
   # Application configuration
   {{- range $key, $value := .Values.authService.env }}
   {{ $key }}: {{ $value | quote }}

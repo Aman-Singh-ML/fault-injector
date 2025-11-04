@@ -150,7 +150,7 @@ observability:
       type: ClusterIP
 
   prometheus:
-    enabled: true
+    enabled: false
     replicas: 1
     retention: 7d
     storage: 20Gi
@@ -167,7 +167,7 @@ observability:
         cpu: 500m
 
   alertmanager:
-    enabled: true
+    enabled: false
     service:
       type: ClusterIP
     resources:
@@ -197,14 +197,14 @@ observability:
       serviceKey: ""
 
   loki:
-    enabled: true
+    enabled: false
     retention: 168h  # 7 days
     storage: 10Gi
     service:
       type: ClusterIP
 
   grafana:
-    enabled: true
+    enabled: false
     adminUser: admin
     adminPassword: admin123
     service:
@@ -221,7 +221,7 @@ observability:
         cpu: 200m
 
   promtail:
-    enabled: true
+    enabled: false
     resources:
       requests:
         memory: 128Mi
@@ -627,7 +627,7 @@ postgresAuth:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -671,7 +671,7 @@ postgresBooking:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -715,7 +715,7 @@ postgresPayment:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -759,7 +759,7 @@ mongodb:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -797,7 +797,7 @@ redis:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -836,7 +836,7 @@ rabbitmq:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -857,7 +857,7 @@ rabbitmq:
     RABBITMQ_DEFAULT_VHOST: "/"
 
 kafka:
-  enabled: true
+  enabled: false
 
   # Use a recent, non-legacy Bitnami image for better support
   image:

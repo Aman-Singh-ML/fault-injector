@@ -8,15 +8,18 @@ metadata:
   labels:
     {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.searchService.name "context" .) | nindent 4 }}
 data:
-  # Database configuration
-  MONGO_URI: {{ include "hotel-reservation.mongoUrl" (dict "host" .Values.mongodb.name "port" .Values.mongodb.service.port "database" .Values.mongodb.database.name "user" .Values.mongodb.database.user "password" .Values.mongodb.database.password) | quote }}
+  # Database configuration - Using Kubernetes DNS names
+  MONGO_URI: "mongodb://{{ .Values.mongodb.database.user }}:{{ .Values.mongodb.database.password }}@{{ .Values.mongodb.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.mongodb.service.port }}"
   MONGO_DATABASE: {{ .Values.mongodb.database.name | quote }}
-  
-  # Redis configuration
-  REDIS_HOST: {{ .Values.redis.name | quote }}
+
+  # Redis configuration - Using Kubernetes DNS names
+  REDIS_ADDR: "{{ .Values.redis.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.redis.service.port }}"
+  REDIS_HOST: "{{ .Values.redis.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
   REDIS_PORT: {{ .Values.redis.service.port | quote }}
-  REDIS_URL: {{ include "hotel-reservation.redisUrl" (dict "host" .Values.redis.name "port" .Values.redis.service.port) | quote }}
-  
+
+  # Kafka configuration - Using Kubernetes DNS names
+  KAFKA_BOOKING_SERVERS: "{{ .Values.kafka.name }}-0.{{ .Values.kafka.name }}-headless.{{ .Values.global.namespace }}.svc.cluster.local:9092"
+
   # Application configuration
   {{- range $key, $value := .Values.searchService.env }}
   {{ $key }}: {{ $value | quote }}

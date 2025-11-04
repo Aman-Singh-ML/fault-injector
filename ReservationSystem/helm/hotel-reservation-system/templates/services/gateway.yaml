@@ -8,20 +8,20 @@ metadata:
   labels:
     {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.gateway.name "context" .) | nindent 4 }}
 data:
-  # Service URLs
-  AUTH_SERVICE_URL: "http://{{ .Values.authService.name }}:{{ .Values.authService.service.port }}"
-  SEARCH_SERVICE_URL: "http://{{ .Values.searchService.name }}:{{ .Values.searchService.service.port }}"
-  BOOKING_SERVICE_URL: "http://{{ .Values.bookingService.name }}:{{ .Values.bookingService.service.port }}"
-  PAYMENT_SERVICE_URL: "http://{{ .Values.paymentService.name }}:{{ .Values.paymentService.service.port }}"
-  NOTIFICATION_SERVICE_URL: "http://{{ .Values.notificationService.name }}:{{ .Values.notificationService.service.port }}"
-  
+  # Service URLs - Using Kubernetes DNS names
+  AUTH_SERVICE_URL: "http://{{ .Values.authService.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.authService.service.port }}"
+  SEARCH_SERVICE_URL: "http://{{ .Values.searchService.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.searchService.service.port }}"
+  BOOKING_SERVICE_URL: "http://{{ .Values.bookingService.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.bookingService.service.port }}"
+  PAYMENT_SERVICE_URL: "http://{{ .Values.paymentService.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.paymentService.service.port }}"
+  NOTIFICATION_SERVICE_URL: "http://{{ .Values.notificationService.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.notificationService.service.port }}"
+
   # Gateway configuration
   {{- range $key, $value := .Values.gateway.env }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}
-  
+
   # Database connection for gateway (if needed)
-  DB_HOST: "{{ .Values.postgresAuth.name }}"
+  DB_HOST: "{{ .Values.postgresAuth.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
   DB_PORT: {{ .Values.postgresAuth.service.port | quote }}
   DB_USER: {{ .Values.postgresAuth.database.user | quote }}
   DB_PASSWORD: {{ .Values.postgresAuth.database.password | quote }}
@@ -29,6 +29,9 @@ data:
 
   # JWT configuration
   JWT_SECRET: {{ .Values.authService.env.JWT_SECRET | quote }}
+
+  # Frontend URL
+  FRONTEND_URL: "http://{{ .Values.frontend.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.frontend.service.port }}"
 
   # Observability configuration
   {{- if .Values.observability.jaeger.enabled }}

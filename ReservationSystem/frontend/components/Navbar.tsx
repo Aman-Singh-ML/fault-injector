@@ -16,6 +16,17 @@ export default function Navbar() {
   // Use lazy-loaded notifications hook - only fetch when user clicks
   const { unreadCount, notifications, fetchNotifications } = useNotifications();
 
+  // Safe date formatting for notification timestamps
+  const formatDate = (value: any) => {
+    try {
+      if (!value) return '-';
+      const d = new Date(value);
+      return isNaN(d.getTime()) ? '-' : d.toLocaleString();
+    } catch {
+      return '-';
+    }
+  };
+
   // Handle notification icon click - fetch on demand
   const handleNotificationClick = useCallback(async () => {
     setShowNotifications(!showNotifications);
@@ -137,7 +148,7 @@ export default function Navbar() {
                                   </p>
                                 )}
                                 <p className="text-xs text-gray-400 mt-1">
-                                  {new Date(notification.createdAt).toLocaleString()}
+                                  {formatDate(notification.createdAt)}
                                 </p>
                               </div>
                             ))}

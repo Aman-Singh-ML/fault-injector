@@ -77,20 +77,49 @@ function BookingConfirmPageContent() {
         totalPrice
       });
 
-      toast.success('Booking created successfully!', { id: 'booking' });
+      // Expect 202 Accepted when queued
+      if (bookingResponse?.status === 202) {
+        toast.success('Booking request queued for processing!', { id: 'booking' });
+      } else {
+        toast.success(bookingResponse?.data?.message || 'Booking request queued for processing!', { id: 'booking' });
+      }
 
-      // Redirect to reservations after 2 seconds
+      // Redirect to reservations after 2 seconds (shows Pending until processed)
       setTimeout(() => {
         router.push('/reservations');
       }, 2000);
 
     } catch (error: any) {
       console.error('Booking error:', error);
+      const res = error?.response;
+      const code = res?.data?.code;
+      const errMsg = res?.data?.error || res?.data?.message;
 
-      if (error.response?.data?.code === 'INSUFFICIENT_INVENTORY') {
+      if (res?.status === 503) {
+        // Kafka producer in search-service reported service issues
+        switch (code) {
+          case 'KAFKA_NOT_CONNECTED':
+            toast.error('Booking service is temporarily unavailable. Please try again in a moment.', { id: 'booking' });
+            break;
+          case 'KAFKA_TIMEOUT':
+            toast.error('Booking request timed out. Please try again.', { id: 'booking' });
+            break;
+          case 'KAFKA_LEADER_NOT_AVAILABLE':
+            toast.error('Booking service is temporarily unavailable. Please try again.', { id: 'booking' });
+            break;
+          case 'KAFKA_TOPIC_NOT_FOUND':
+            toast.error('Booking service configuration error. Please contact support.', { id: 'booking' });
+            break;
+          case 'KAFKA_PUBLISH_FAILED':
+            toast.error('Failed to process booking request. Please try again.', { id: 'booking' });
+            break;
+          default:
+            toast.error(errMsg || 'Booking service unavailable', { id: 'booking' });
+        }
+      } else if (code === 'INSUFFICIENT_INVENTORY') {
         toast.error('Sorry, not enough rooms available for selected dates', { id: 'booking' });
       } else {
-        toast.error(error.response?.data?.error || 'Failed to create booking', { id: 'booking' });
+        toast.error(errMsg || 'Failed to create booking', { id: 'booking' });
       }
 
       setProcessing(false);

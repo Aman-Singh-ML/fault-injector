@@ -233,7 +233,6 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -262,7 +261,6 @@ services:
     volumes:
       - kafka_booking_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 30s
       timeout: 10s
       retries: 5

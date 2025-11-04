@@ -3,6 +3,7 @@ FOR KAFKA CREATE BOOKING MONITORING
 ================================================================================
 kafka-console-consumer --bootstrap-server localhost:9094 --topic booking-requests --from-beginning
 
+# instance name : hotel-kafka-booking
 
 ================================================================================
 FOR KAFKA CANCEL BOOKING MONITORING

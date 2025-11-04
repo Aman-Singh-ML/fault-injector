@@ -20,31 +20,47 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 # Initialize tracing
 init_tracing("notification-service")
 
-# Prometheus metrics
-http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status']
-)
+# Prometheus metrics - use try-except to handle re-registration
+try:
+    http_requests_total = Counter(
+        'http_requests_total',
+        'Total HTTP requests',
+        ['method', 'endpoint', 'status']
+    )
+except ValueError:
+    from prometheus_client import REGISTRY
+    http_requests_total = REGISTRY._names_to_collectors.get('http_requests_total')
 
-http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request latency',
-    ['method', 'endpoint']
-)
+try:
+    http_request_duration_seconds = Histogram(
+        'http_request_duration_seconds',
+        'HTTP request latency',
+        ['method', 'endpoint']
+    )
+except ValueError:
+    from prometheus_client import REGISTRY
+    http_request_duration_seconds = REGISTRY._names_to_collectors.get('http_request_duration_seconds')
 
 # Kafka metrics
-kafka_messages_total = Counter(
-    'notification_service_kafka_messages_total',
-    'Total Kafka messages',
-    ['topic', 'status']
-)
+try:
+    kafka_messages_total = Counter(
+        'notification_service_kafka_messages_total',
+        'Total Kafka messages',
+        ['topic', 'status']
+    )
+except ValueError:
+    from prometheus_client import REGISTRY
+    kafka_messages_total = REGISTRY._names_to_collectors.get('notification_service_kafka_messages_total')
 
-kafka_message_duration_seconds = Histogram(
-    'notification_service_kafka_message_duration_seconds',
-    'Kafka message processing duration in seconds',
-    ['topic']
-)
+try:
+    kafka_message_duration_seconds = Histogram(
+        'notification_service_kafka_message_duration_seconds',
+        'Kafka message processing duration in seconds',
+        ['topic']
+    )
+except ValueError:
+    from prometheus_client import REGISTRY
+    kafka_message_duration_seconds = REGISTRY._names_to_collectors.get('notification_service_kafka_message_duration_seconds')
 
 app = FastAPI(
     title="Notification Service",
@@ -139,7 +155,8 @@ def consume_kafka_events_sync():
         print(f"📋 Subscribed to topics: {consumer.subscription()}")
 
         for message in consumer:
-            print(f"📬 Raw Kafka message received from topic: {message.topic}")
+            topic_name = message.topic
+            print(f"📬 Raw Kafka message received from topic: {topic_name}")
             start_time = time.time()
             try:
                 event = message.value
@@ -152,18 +169,58 @@ def consume_kafka_events_sync():
                 
                 # Create notification based on event type
                 notification = None
-                
+
                 if event_type == 'BOOKING_CREATED':
+                    # Format: "hotel-name booking is created for n-room, n-adults, n-children, from date x to y for n days, with amount x is successful/pending"
+                    hotel_name = data.get('hotelName', 'Hotel')
+                    rooms = data.get('rooms', 1)
+                    adults = data.get('adults', 1)
+                    children = data.get('children', 0)
+                    check_in = data.get('checkInDate', '')
+                    check_out = data.get('checkOutDate', '')
+                    days = data.get('days', 0)
+                    amount = data.get('totalPrice', 0)
+                    status = data.get('status', 'pending').lower()
+                    db_reachable = data.get('dbReachable', True)
+
+                    # Determine status text
+                    status_text = "successful" if db_reachable and status in ['confirmed', 'successful'] else "pending"
+
+                    message = f"{hotel_name} booking is created for {rooms} room{'s' if rooms > 1 else ''}, {adults} adult{'s' if adults > 1 else ''}, {children} child{'ren' if children != 1 else ''}, from {check_in} to {check_out} for {days} day{'s' if days > 1 else ''}, with amount ${amount:.2f} is {status_text}"
+
                     notification = {
                         'userId': str(data.get('userId')),
                         'type': 'booking',
                         'title': 'Booking Created',
-                        'message': f"Your booking for {data.get('hotelName')} has been created successfully!",
+                        'message': message,
                         'data': data,
                         'read': False,
                         'createdAt': datetime.utcnow()
                     }
-                
+
+                elif event_type == 'BOOKING_CREATION_STARTED':
+                    # Format: "hotel-name booking is queued to book for n-room, n-adults, n-children, from date x to y for n days, with amount x"
+                    hotel_name = data.get('hotelName', 'Hotel')
+                    rooms = data.get('rooms', 1)
+                    adults = data.get('adults', 1)
+                    children = data.get('children', 0)
+                    check_in = data.get('checkInDate', '')
+                    check_out = data.get('checkOutDate', '')
+                    days = data.get('days', 0)
+                    amount = data.get('totalPrice', 0)
+
+                    message = f"{hotel_name} booking is queued to book for {rooms} room{'s' if rooms > 1 else ''}, {adults} adult{'s' if adults > 1 else ''}, {children} child{'ren' if children != 1 else ''}, from {check_in} to {check_out} for {days} day{'s' if days > 1 else ''}, with amount ${amount:.2f}"
+
+                    notification = {
+                        'userId': str(data.get('userId')),
+                        'type': 'booking',
+                        'title': 'Booking Request Queued',
+                        'message': message,
+                        'data': data,
+                        'read': False,
+                        'createdAt': datetime.utcnow()
+                    }
+
                 elif event_type == 'BOOKING_CONFIRMED':
                     notification = {
                         'userId': str(data.get('userId')),
@@ -174,7 +231,18 @@ def consume_kafka_events_sync():
                         'read': False,
                         'createdAt': datetime.utcnow()
                     }
-                
+
+                elif event_type == 'BOOKING_CANCELLED':
+                    notification = {
+                        'userId': str(data.get('userId', event.get('userId', 'unknown'))),
+                        'type': 'booking',
+                        'title': 'Booking Cancelled',
+                        'message': f"Your booking #{data.get('bookingId', event.get('bookingId', 'N/A'))} has been cancelled.",
+                        'data': data if data else event,
+                        'read': False,
+                        'createdAt': datetime.utcnow()
+                    }
+
                 elif event_type == 'PAYMENT_VERIFIED':
                     notification = {
                         'userId': str(data.get('userId')),
@@ -199,14 +267,14 @@ def consume_kafka_events_sync():
 
                     # Record successful Kafka message processing
                     duration = time.time() - start_time
-                    kafka_messages_total.labels(topic=message.topic, status='received').inc()
-                    kafka_message_duration_seconds.labels(topic=message.topic).observe(duration)
+                    kafka_messages_total.labels(topic=topic_name, status='received').inc()
+                    kafka_message_duration_seconds.labels(topic=topic_name).observe(duration)
 
             except Exception as e:
                 # Record failed Kafka message processing
                 duration = time.time() - start_time
-                kafka_messages_total.labels(topic=message.topic, status='failed').inc()
-                kafka_message_duration_seconds.labels(topic=message.topic).observe(duration)
+                kafka_messages_total.labels(topic=topic_name, status='failed').inc()
+                kafka_message_duration_seconds.labels(topic=topic_name).observe(duration)
                 print(f"❌ Error processing Kafka message: {e}")
                 traceback.print_exc()
 
@@ -245,23 +313,29 @@ async def health_check():
 async def metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-@app.get("/notifications/{user_id}")
-async def get_notifications(user_id: str):
-    """Get all notifications for a user"""
+@app.post("/notifications")
+async def get_notifications(request: Request):
+    """Get all notifications for a user - using request body"""
     try:
+        body = await request.json()
+        user_id = body.get('userId')
+
+        if not user_id:
+            return {'notifications': [], 'unreadCount': 0, 'error': 'userId required'}
+
         notifications = await notifications_collection.find(
-            {'userId': user_id}
+            {'userId': str(user_id)}
         ).sort('createdAt', -1).limit(50).to_list(50)
-        
+
         # Convert ObjectId to string
         for notif in notifications:
             notif['_id'] = str(notif['_id'])
             notif['createdAt'] = notif['createdAt'].isoformat()
-        
+
         unread_count = await notifications_collection.count_documents(
-            {'userId': user_id, 'read': False}
+            {'userId': str(user_id), 'read': False}
         )
-        
+
         return {
             'notifications': notifications,
             'unreadCount': unread_count
@@ -299,6 +373,50 @@ async def mark_all_notifications_read(user_id: str):
         return {'success': True, 'count': result.modified_count}
     except Exception as e:
         print(f"❌ Error marking all notifications as read: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'error': str(e)}
+
+@app.post("/notifications/read-all")
+async def mark_all_notifications_read_post(request: Request):
+    """Mark all notifications as read for a user - using request body"""
+    try:
+        body = await request.json()
+        user_id = body.get('userId')
+
+        if not user_id:
+            return {'success': False, 'error': 'userId required'}
+
+        result = await notifications_collection.update_many(
+            {'userId': str(user_id), 'read': False},
+            {'$set': {'read': True}}
+        )
+
+        return {'success': True, 'count': result.modified_count}
+    except Exception as e:
+        print(f"❌ Error marking all notifications as read: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'error': str(e)}
+
+@app.post("/notifications/delete")
+async def delete_notification_post(request: Request):
+    """Delete a notification - using request body"""
+    try:
+        from bson import ObjectId
+        body = await request.json()
+        notification_id = body.get('id')
+
+        if not notification_id:
+            return {'success': False, 'error': 'id required'}
+
+        result = await notifications_collection.delete_one(
+            {'_id': ObjectId(notification_id)}
+        )
+
+        return {'success': result.deleted_count > 0}
+    except Exception as e:
+        print(f"❌ Error deleting notification: {e}")
         import traceback
         traceback.print_exc()
         return {'success': False, 'error': str(e)}

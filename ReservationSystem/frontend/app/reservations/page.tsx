@@ -8,7 +8,7 @@ import { Booking } from '@/types';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import toast from 'react-hot-toast';
-import { FaSpinner, FaCalendarAlt, FaMapMarkerAlt, FaUsers, FaDollarSign, FaCheckCircle, FaClock, FaTimesCircle } from 'react-icons/fa';
+import { FaSpinner, FaCalendarAlt, FaMapMarkerAlt, FaUsers, FaDollarSign, FaCheckCircle, FaClock, FaTimesCircle, FaSyncAlt } from 'react-icons/fa';
 import { format } from 'date-fns';
 
 export default function ReservationsPage() {
@@ -33,8 +33,24 @@ export default function ReservationsPage() {
       return;
     }
 
+    // Fetch bookings when component mounts or when user navigates to this page
     fetchBookings();
   }, [isAuthenticated, isHydrated, router]);
+
+  // Refresh bookings when the page becomes visible (user switches tabs)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isAuthenticated && isHydrated) {
+        console.log('Page became visible, refreshing bookings...');
+        fetchBookings();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isAuthenticated, isHydrated]);
 
   const fetchBookings = async () => {
     setLoading(true);
@@ -130,9 +146,19 @@ export default function ReservationsPage() {
       
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">My Reservations</h1>
-          <p className="mt-2 text-gray-600">View and manage your hotel bookings</p>
+        <div className="mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">My Reservations</h1>
+            <p className="mt-2 text-gray-600">View and manage your hotel bookings</p>
+          </div>
+          <button
+            onClick={() => fetchBookings()}
+            disabled={loading}
+            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <FaSyncAlt className={loading ? 'animate-spin' : ''} />
+            <span>Refresh</span>
+          </button>
         </div>
 
         {/* Filter Tabs */}
