@@ -1,0 +1,36 @@
+{{- if .Values.ingressController.enabled }}
+---
+# Service to expose Nginx metrics and log exporter ports for Prometheus scraping
+# Using ClusterIP for internal cluster access only
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-metrics
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: nginx-metrics
+    app.kubernetes.io/component: observability
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "10254"
+spec:
+  type: ClusterIP
+  # Use the same selector as the ingress controller to target the same pods
+  selector:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: controller
+  ports:
+    # Nginx Ingress Controller built-in metrics
+    - name: controller-metrics
+      port: 10254
+      targetPort: 10254
+      protocol: TCP
+    # Nginx Log Exporter sidecar metrics
+    - name: log-exporter
+      port: 4040
+      targetPort: 4040
+      protocol: TCP
+{{- end }}
+

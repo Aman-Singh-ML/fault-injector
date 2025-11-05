@@ -31,6 +31,14 @@ data:
     allow_sign_up = false
     [auth.anonymous]
     enabled = false
+    [unified_alerting]
+    enabled = true
+    execute_alerts = true
+    evaluation_timeout = 30s
+    max_attempts = 3
+    min_interval = 10s
+    [alerting]
+    enabled = false
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -81,6 +89,8 @@ spec:
           mountPath: /etc/grafana/provisioning/datasources
         - name: grafana-dashboards-config
           mountPath: /etc/grafana/provisioning/dashboards
+        - name: grafana-alerting-config
+          mountPath: /etc/grafana/provisioning/alerting
         - name: grafana-dashboards
           mountPath: /var/lib/grafana/dashboards
         - name: grafana-dashboard-postgresql
@@ -105,6 +115,14 @@ spec:
           mountPath: /var/lib/grafana/dashboards/individual-services
         - name: grafana-dashboard-logs
           mountPath: /var/lib/grafana/dashboards/logs
+        - name: grafana-dashboard-cluster-node-pod
+          mountPath: /var/lib/grafana/dashboards/cluster-node-pod
+        - name: grafana-dashboard-health-probe
+          mountPath: /var/lib/grafana/dashboards/health-probe
+        {{- if .Values.ingressController.enabled }}
+        - name: grafana-dashboard-nginx
+          mountPath: /var/lib/grafana/dashboards/nginx
+        {{- end }}
         {{- if .Values.observability.grafana.persistence }}
         - name: grafana-storage
           mountPath: /var/lib/grafana
@@ -160,6 +178,9 @@ spec:
       - name: grafana-dashboards-config
         configMap:
           name: grafana-dashboards-config
+      - name: grafana-alerting-config
+        configMap:
+          name: grafana-alerting-config
       - name: grafana-dashboards
         configMap:
           name: grafana-dashboards
@@ -196,6 +217,17 @@ spec:
       - name: grafana-dashboard-logs
         configMap:
           name: grafana-dashboard-logs
+      - name: grafana-dashboard-cluster-node-pod
+        configMap:
+          name: grafana-dashboard-cluster-node-pod
+      - name: grafana-dashboard-health-probe
+        configMap:
+          name: grafana-dashboard-health-probe
+      {{- if .Values.ingressController.enabled }}
+      - name: grafana-dashboard-nginx
+        configMap:
+          name: grafana-dashboard-nginx
+      {{- end }}
       {{- if .Values.observability.grafana.persistence }}
       - name: grafana-storage
         persistentVolumeClaim:

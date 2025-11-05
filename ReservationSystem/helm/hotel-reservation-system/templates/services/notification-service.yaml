@@ -8,25 +8,22 @@ metadata:
   labels:
     {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.notificationService.name "context" .) | nindent 4 }}
 data:
-  # MongoDB configuration - Using Kubernetes DNS names
-  MONGO_URI: "mongodb://{{ .Values.mongodb.database.user }}:{{ .Values.mongodb.database.password }}@{{ .Values.mongodb.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.mongodb.service.port }}"
+  # MongoDB configuration (for storing notifications)
+  MONGO_URI: {{ include "hotel-reservation.mongoUrl" (dict "host" .Values.mongodb.name "port" .Values.mongodb.service.port "database" .Values.mongodb.database.name "user" .Values.mongodb.database.user "password" .Values.mongodb.database.password) | quote }}
   MONGO_DATABASE: {{ .Values.mongodb.database.name | quote }}
-
-  # Redis configuration - Using Kubernetes DNS names
-  REDIS_HOST: "{{ .Values.redis.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
+  
+  # Redis configuration
+  REDIS_HOST: {{ .Values.redis.name | quote }}
   REDIS_PORT: {{ .Values.redis.service.port | quote }}
-
-  # Kafka configuration - Using Kubernetes DNS names
-  KAFKA_BOOTSTRAP_SERVERS: "{{ .Values.kafka.name }}-0.{{ .Values.kafka.name }}-headless.{{ .Values.global.namespace }}.svc.cluster.local:9092"
-  KAFKA_TOPIC_BOOKING_EVENTS: "booking-events"
-
-  # RabbitMQ configuration - Using Kubernetes DNS names
-  RABBITMQ_URL: "amqp://{{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER }}:{{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS }}@{{ .Values.rabbitmq.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.rabbitmq.service.amqpPort }}/"
-  RABBITMQ_HOST: "{{ .Values.rabbitmq.name }}.{{ .Values.global.namespace }}.svc.cluster.local"
+  REDIS_URL: {{ include "hotel-reservation.redisUrl" (dict "host" .Values.redis.name "port" .Values.redis.service.port) | quote }}
+  
+  # RabbitMQ configuration
+  RABBITMQ_URL: {{ include "hotel-reservation.rabbitmqUrl" (dict "host" .Values.rabbitmq.name "port" .Values.rabbitmq.service.amqpPort "user" .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER "password" .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS) | quote }}
+  RABBITMQ_HOST: {{ .Values.rabbitmq.name | quote }}
   RABBITMQ_PORT: {{ .Values.rabbitmq.service.amqpPort | quote }}
   RABBITMQ_USER: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
   RABBITMQ_PASSWORD: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
-
+  
   # Application configuration
   {{- range $key, $value := .Values.notificationService.env }}
   {{ $key }}: {{ $value | quote }}
@@ -68,7 +65,7 @@ spec:
         - /bin/sh
         - -c
         - |
-          until nc -z {{ .Values.mongodb.name }}.{{ .Values.global.namespace }}.svc.cluster.local {{ .Values.mongodb.service.port }}; do
+          until nc -z {{ .Values.mongodb.name }} {{ .Values.mongodb.service.port }}; do
             echo "Waiting for MongoDB to be ready..."
             sleep 2
           done
@@ -79,7 +76,7 @@ spec:
         - /bin/sh
         - -c
         - |
-          until nc -z {{ .Values.rabbitmq.name }}.{{ .Values.global.namespace }}.svc.cluster.local {{ .Values.rabbitmq.service.amqpPort }}; do
+          until nc -z {{ .Values.rabbitmq.name }} {{ .Values.rabbitmq.service.amqpPort }}; do
             echo "Waiting for RabbitMQ to be ready..."
             sleep 2
           done
@@ -89,19 +86,17 @@ spec:
           value: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
         - name: RABBITMQ_DEFAULT_PASS
           value: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
-      {{- if .Values.kafka.enabled }}
       - name: wait-for-kafka
         image: busybox:1.35
         command:
         - /bin/sh
         - -c
         - |
-          until nc -z {{ .Values.kafka.name }}-0.{{ .Values.kafka.name }}-headless.{{ .Values.global.namespace }}.svc.cluster.local 9092; do
+          until nc -z hotel-reservation-kafka 9092; do
             echo "Waiting for Kafka to be ready..."
             sleep 2
           done
           echo "Kafka is ready!"
-      {{- end }}
       containers:
       - name: {{ .Values.notificationService.name }}
         image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.notificationService.image.repository "tag" .Values.notificationService.image.tag) }}

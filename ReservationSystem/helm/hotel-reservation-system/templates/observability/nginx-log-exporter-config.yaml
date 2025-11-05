@@ -1,0 +1,31 @@
+{{- if .Values.ingressController.enabled }}
+---
+# ConfigMap for Nginx Log Exporter (sidecar in ingress controller)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-log-exporter-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: nginx-log-exporter
+    app.kubernetes.io/component: observability
+data:
+  config.yml: |
+    listen:
+      port: 4040
+      address: "0.0.0.0"
+
+    consul:
+      enable: false
+
+    namespaces:
+      - name: nginx
+        format: "$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\" $request_length $request_time [$proxy_upstream_name] [$proxy_alternative_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status $req_id"
+        source:
+          files:
+            - /var/log/nginx/access.log
+        namespace_label: nginx
+        histogram_buckets: [.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10]
+{{- end }}
+

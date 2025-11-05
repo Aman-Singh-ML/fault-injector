@@ -1,0 +1,755 @@
+{{- if .Values.observability.grafana.enabled }}
+---
+# Grafana Alerting Provisioning - Single ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: grafana-alerting
+data:
+  contactpoints.yaml: |
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: default-webhook
+        receivers:
+          - uid: default-webhook
+            type: webhook
+            settings:
+              url: {{ .Values.observability.grafana.alerting.webhook.url | default "http://localhost:8080/webhook" }}
+              httpMethod: POST
+            disableResolveMessage: false
+
+  policies.yaml: |
+    apiVersion: 1
+    policies:
+      - orgId: 1
+        receiver: default-webhook
+        group_by:
+          - grafana_folder
+          - alertname
+        group_wait: 10s
+        group_interval: 10s
+        repeat_interval: 12h
+        routes:
+          - receiver: default-webhook
+            matchers:
+              - severity = critical
+            group_wait: 10s
+            group_interval: 5m
+            repeat_interval: 4h
+          - receiver: default-webhook
+            matchers:
+              - severity = warning
+            group_wait: 10s
+            group_interval: 10m
+            repeat_interval: 12h
+
+  alert-rules.yaml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: service_availability
+        folder: Hotel Reservation Alerts
+        interval: 30s
+        rules:
+          # Gateway Service Down Alert
+          - uid: gateway-service-down
+            title: Gateway Service Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: up{job="gateway"}
+                  refId: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 1
+                        type: lt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: Alerting
+            execErrState: Alerting
+            for: 1m
+            annotations:
+              summary: Gateway Service is Down
+              description: The API Gateway service has been down for more than 1 minute. All API traffic is affected.
+            labels:
+              severity: critical
+              service: gateway
+              category: availability
+          
+          # Auth Service Down Alert
+          - uid: auth-service-down
+            title: Auth Service Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: up{job="auth-service"}
+                  refId: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 1
+                        type: lt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: Alerting
+            execErrState: Alerting
+            for: 1m
+            annotations:
+              summary: Auth Service is Down
+              description: The Authentication service has been down for more than 1 minute. Users cannot login or register.
+            labels:
+              severity: critical
+              service: auth-service
+              category: availability
+          
+          # Search Service Down Alert
+          - uid: search-service-down
+            title: Search Service Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: up{job="search-service"}
+                  refId: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 1
+                        type: lt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: Alerting
+            execErrState: Alerting
+            for: 1m
+            annotations:
+              summary: Search Service is Down
+              description: The Search service has been down for more than 1 minute. Hotel search functionality is unavailable.
+            labels:
+              severity: critical
+              service: search-service
+              category: availability
+          
+          # Booking Service Down Alert
+          - uid: booking-service-down
+            title: Booking Service Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: up{job="booking-service"}
+                  refId: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 1
+                        type: lt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: Alerting
+            execErrState: Alerting
+            for: 1m
+            annotations:
+              summary: Booking Service is Down
+              description: The Booking service has been down for more than 1 minute. Users cannot make or manage bookings.
+            labels:
+              severity: critical
+              service: booking-service
+              category: availability
+
+          # Payment Service Down Alert
+          - uid: payment-service-down
+            title: Payment Service Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: up{job="payment-service"}
+                  refId: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 1
+                        type: lt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: Alerting
+            execErrState: Alerting
+            for: 1m
+            annotations:
+              summary: Payment Service is Down
+              description: The Payment service has been down for more than 1 minute. Payment processing is unavailable.
+            labels:
+              severity: critical
+              service: payment-service
+              category: availability
+
+          # Notification Service Down Alert
+          - uid: notification-service-down
+            title: Notification Service Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: up{job="notification-service"}
+                  refId: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 1
+                        type: lt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: Alerting
+            execErrState: Alerting
+            for: 1m
+            annotations:
+              summary: Notification Service is Down
+              description: The Notification service has been down for more than 1 minute. Users may not receive notifications.
+            labels:
+              severity: warning
+              service: notification-service
+              category: availability
+
+      # Infrastructure and Performance Alerts
+      - orgId: 1
+        name: infrastructure_performance
+        folder: Hotel Reservation Alerts
+        interval: 1m
+        rules:
+          # Nginx HTTP Response Time High
+          - uid: nginx-response-time-high
+            title: Nginx HTTP Response Time High
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: |
+                    sum by (instance) (rate(nginx_http_response_time_seconds_sum[5m]))
+                    /
+                    sum by (instance) (rate(nginx_http_response_time_seconds_count[5m]))
+                  refId: A
+                  instant: true
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 5
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: OK
+            execErrState: OK
+            for: 1m
+            annotations:
+              summary: Nginx Response Time is High
+              description: Average HTTP response time is above 5 seconds for more than 1 minute.
+            labels:
+              severity: warning
+              service: nginx-ingress
+              category: performance
+
+          # Nginx 5xx Errors High
+          - uid: nginx-5xx-errors-high
+            title: Nginx 5xx Errors High
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: |
+                    sum by (instance) (
+                      rate(nginx_http_response_count_total{status=~"5.."}[5m])
+                    )
+                  refId: A
+                  instant: true
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 3
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: OK
+            execErrState: OK
+            for: 1m
+            annotations:
+              summary: High Rate of 5xx Errors
+              description: Nginx is returning more than 3 5xx errors per second for more than 1 minute.
+            labels:
+              severity: critical
+              service: nginx-ingress
+              category: errors
+
+          # Nginx 4xx Errors High
+          - uid: nginx-4xx-errors-high
+            title: Nginx 4xx Errors High
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: |
+                    sum by (instance) (
+                      rate(nginx_http_response_count_total{status=~"4.."}[5m])
+                    )
+                  refId: A
+                  instant: true
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 4
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: OK
+            execErrState: OK
+            for: 1m
+            annotations:
+              summary: High Rate of 4xx Errors
+              description: Nginx is returning more than 4 4xx errors per second for more than 1 minute.
+            labels:
+              severity: warning
+              service: nginx-ingress
+              category: errors
+
+          # Redis Cache Memory Usage High
+          - uid: redis-memory-usage-high
+            title: Redis Cache Memory Usage High
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: |
+                    (redis_memory_used_bytes / redis_memory_max_bytes) * 100
+                      and (redis_memory_max_bytes > 0)
+                  refId: A
+                  instant: true
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 90
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: OK
+            execErrState: Error
+            for: 1m
+            annotations:
+              summary: Redis Memory Usage is High
+              description: Redis cache memory usage is above 90% for more than 1 minute. Consider scaling or clearing cache.
+            labels:
+              severity: warning
+              service: redis
+              category: resource
+
+          # Node Unschedulable
+          - uid: node-unschedulable
+            title: Node Unschedulable
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: kube_node_spec_unschedulable
+                  refId: A
+                  instant: true
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 0
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: OK
+            execErrState: Error
+            for: 1m
+            annotations:
+              summary: Node is Unschedulable
+              description: A Kubernetes node has been marked as unschedulable. New pods cannot be scheduled on this node.
+            labels:
+              severity: warning
+              service: kubernetes
+              category: infrastructure
+
+          # Pod Container Restart
+          - uid: pod-container-restart
+            title: Pod Container Restart in Hotel Reservation Namespace
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: |
+                    increase(kube_pod_container_status_restarts_total{namespace="{{ .Values.global.namespace }}"}[5m])
+                  refId: A
+                  instant: true
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+              - refId: B
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  refId: B
+                  expression: A
+                  reducer: last
+              - refId: C
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  refId: C
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 1
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      type: query
+            noDataState: OK
+            execErrState: Error
+            for: 1m
+            annotations:
+              summary: Pod Container Restarted
+              description: A container in the {{ .Values.global.namespace }} namespace has restarted at least once in the last 5 minutes.
+            labels:
+              severity: warning
+              service: kubernetes
+              category: stability
+{{- end }}
+

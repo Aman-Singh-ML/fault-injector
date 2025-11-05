@@ -32,20 +32,29 @@ environment: production # development, staging, production
 # Nginx Ingress Controller Configuration
 ingressController:
   enabled: true  # Set to true to install ingress controller as part of this chart
-  # Configuration for the ingress-nginx subchart
+
+# Configuration for the ingress-nginx subchart (dependency)
+ingress-nginx:
   controller:
     service:
       type: LoadBalancer
       annotations: {}
     # Allow snippets for custom NGINX configuration
     allowSnippetAnnotations: true
+    # Enable metrics
     metrics:
       enabled: true
+      port: 10254
+      service:
+        annotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "10254"
       serviceMonitor:
         enabled: false  # Enable if you have Prometheus operator
     podAnnotations:
       prometheus.io/scrape: "true"
       prometheus.io/port: "10254"
+      prometheus.io/port-log-exporter: "4040"
     resources:
       requests:
         cpu: 100m
@@ -110,6 +119,88 @@ ingressController:
     extraArgs:
       v: 2
       logtostderr: true
+    # Configure nginx to write access logs to file for log exporter
+    config:
+      log-format-upstream: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" $request_length $request_time [$proxy_upstream_name] [$proxy_alternative_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status $req_id'
+      access-log-path: /var/log/nginx/access.log
+    # Add sidecar containers for exporters
+    extraContainers:
+      # Nginx Log Exporter - parses access logs (sidecar)
+      - name: nginx-log-exporter
+        image: quay.io/martinhelmich/prometheus-nginxlog-exporter:v1.10.0
+        args:
+          - -config-file
+          - /etc/prometheus-nginxlog-exporter/config.yml
+        ports:
+          - name: log-exporter
+            containerPort: 4040
+            protocol: TCP
+        volumeMounts:
+          - name: nginx-log-exporter-config
+            mountPath: /etc/prometheus-nginxlog-exporter
+          - name: nginx-logs
+            mountPath: /var/log/nginx
+            readOnly: true
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 4040
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 4040
+          initialDelaySeconds: 5
+          periodSeconds: 5
+    # Mount nginx-logs volume in the controller container
+    extraVolumeMounts:
+      - name: nginx-logs
+        mountPath: /var/log/nginx
+    # Add volumes for log exporter
+    extraVolumes:
+      - name: nginx-log-exporter-config
+        configMap:
+          name: nginx-log-exporter-config
+      - name: nginx-logs
+        emptyDir: {}
+
+# Nginx Exporters Configuration (DEPRECATED - now using sidecars in ingress controller)
+nginxExporters:
+  enabled: false  # Disabled - exporters are now sidecars in ingress controller pod
+  # Nginx Prometheus Exporter - scrapes Nginx Ingress Controller metrics
+  # This re-exposes the Nginx Ingress Controller metrics in a different format
+  metricsExporter:
+    enabled: false
+    image:
+      repository: nginx/nginx-prometheus-exporter
+      tag: "0.11.0"
+      pullPolicy: IfNotPresent
+    port: 9113
+    # Scrape the Nginx Ingress Controller metrics endpoint
+    scrapeUri: "http://hotel-reservation-ingress-nginx-controller.hotel-reservation.svc.cluster.local:8080/stub_status"
+  # Nginx Log Exporter - parses access logs
+  logExporter:
+    enabled: false
+    image:
+      repository: quay.io/martinhelmich/prometheus-nginxlog-exporter
+      tag: "v1.10.0"
+      pullPolicy: IfNotPresent
+    port: 4040
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
 
 # Custom Nginx Service Configuration (deprecated - using ingress controller instead)
 nginx:
@@ -147,10 +238,10 @@ observability:
     strategy: allInOne  # Use 'production' for production deployments
     storage: memory     # Use 'elasticsearch' for production
     service:
-      type: ClusterIP
+      type: LoadBalancer
 
   prometheus:
-    enabled: false
+    enabled: true
     replicas: 1
     retention: 7d
     storage: 20Gi
@@ -167,7 +258,7 @@ observability:
         cpu: 500m
 
   alertmanager:
-    enabled: false
+    enabled: true
     service:
       type: ClusterIP
     resources:
@@ -197,18 +288,40 @@ observability:
       serviceKey: ""
 
   loki:
-    enabled: false
+    enabled: true
     retention: 168h  # 7 days
     storage: 10Gi
     service:
       type: ClusterIP
 
+  # kube-state-metrics - Exposes Kubernetes object metrics
+  kubeStateMetrics:
+    enabled: true
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 100m
+      limits:
+        memory: 256Mi
+        cpu: 200m
+
+  # node-exporter - Exposes node-level hardware and OS metrics
+  nodeExporter:
+    enabled: true
+    resources:
+      requests:
+        memory: 64Mi
+        cpu: 50m
+      limits:
+        memory: 128Mi
+        cpu: 100m
+
   grafana:
-    enabled: false
+    enabled: true
     adminUser: admin
     adminPassword: admin123
     service:
-      type: ClusterIP
+      type: LoadBalancer
     persistence:
       enabled: true
       size: 5Gi
@@ -219,9 +332,13 @@ observability:
       limits:
         memory: 512Mi
         cpu: 200m
+    # Grafana Alerting Configuration
+    alerting:
+      webhook:
+        url: "http://1.2.3.4/v1/webhooks/alerts/grafana"  # Replace with your webhook URL
 
   promtail:
-    enabled: false
+    enabled: true
     resources:
       requests:
         memory: 128Mi
@@ -256,8 +373,8 @@ frontend:
   replicaCount: 1
 
   image:
-    repository: amansingh2708/frontend
-    tag: latest
+    repository: amansingh2708/hotel-frontend
+    tag: amrita
     pullPolicy: Always
 
   service:
@@ -305,8 +422,8 @@ gateway:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/gateway
-    tag: latest
+    repository: amansingh2708/hotel-gateway
+    tag: amrita
     pullPolicy: Always
   
   service:
@@ -356,8 +473,8 @@ authService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/auth-service
-    tag: latest
+    repository: amansingh2708/hotel-auth-service
+    tag: amrita
     pullPolicy: Always
   
   service:
@@ -408,8 +525,8 @@ searchService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/search-service
-    tag: latest
+    repository: amansingh2708/hotel-search-service
+    tag: amrita
     pullPolicy: Always
   
   service:
@@ -457,8 +574,8 @@ bookingService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/booking-service
-    tag: latest
+    repository: amansingh2708/hotel-booking-service
+    tag: amrita
     pullPolicy: Always
   
   service:
@@ -506,8 +623,8 @@ paymentService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/payment-service
-    tag: latest
+    repository: amansingh2708/hotel-payment-service
+    tag: amrita
     pullPolicy: Always
   
   service:
@@ -555,8 +672,8 @@ notificationService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/notification-service
-    tag: latest
+    repository: amansingh2708/hotel-notification-service
+    tag: amrita
     pullPolicy: Always
   
   service:
@@ -627,7 +744,7 @@ postgresAuth:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "standard"
+    storageClass: ""
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -671,7 +788,7 @@ postgresBooking:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "standard"
+    storageClass: "managed-csi"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -715,7 +832,7 @@ postgresPayment:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "standard"
+    storageClass: "managed-csi"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -759,7 +876,7 @@ mongodb:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "standard"
+    storageClass: "managed-csi"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -797,7 +914,7 @@ redis:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "standard"
+    storageClass: "managed-csi"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -836,7 +953,7 @@ rabbitmq:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "standard"
+    storageClass: "managed-csi"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -857,7 +974,7 @@ rabbitmq:
     RABBITMQ_DEFAULT_VHOST: "/"
 
 kafka:
-  enabled: false
+  enabled: true
 
   # Use a recent, non-legacy Bitnami image for better support
   image:

@@ -77,7 +77,96 @@ data:
     - job_name: 'redis'
       static_configs:
       - targets: ['redis.hotel-reservation:9121']
-    
+
+    {{- if .Values.ingressController.enabled }}
+    # Nginx Ingress Controller built-in metrics (port 10254)
+    # Available metrics:
+    # - nginx_ingress_controller_nginx_process_connections (active connections)
+    # - nginx_ingress_controller_nginx_process_requests_total (total requests)
+    # - nginx_ingress_controller_nginx_process_cpu_seconds_total (CPU usage)
+    # - nginx_ingress_controller_nginx_process_resident_memory_bytes (memory)
+    - job_name: 'nginx-ingress-controller'
+      static_configs:
+      - targets: ['nginx-metrics.{{ .Values.global.namespace }}.svc.cluster.local:10254']
+        labels:
+          service: 'nginx-ingress-controller'
+
+    # Nginx Log Exporter - sidecar in ingress controller (port 4040)
+    # Provides additional log-based metrics
+    - job_name: 'nginx-log-exporter'
+      static_configs:
+      - targets: ['nginx-metrics.{{ .Values.global.namespace }}.svc.cluster.local:4040']
+        labels:
+          service: 'nginx-ingress'
+          exporter: 'nginx-log-exporter'
+    {{- end }}
+
+    {{- if .Values.observability.kubeStateMetrics.enabled }}
+    # kube-state-metrics - Kubernetes object metrics
+    # Provides metrics like:
+    # - kube_pod_container_resource_limits
+    # - kube_pod_container_resource_requests
+    # - kube_pod_container_status_restarts_total
+    # - kube_deployment_status_replicas
+    # - kube_node_status_condition
+    - job_name: 'kube-state-metrics'
+      static_configs:
+      - targets: ['kube-state-metrics.{{ .Values.global.namespace }}.svc.cluster.local:8080']
+        labels:
+          service: 'kube-state-metrics'
+    {{- end }}
+
+    {{- if .Values.observability.nodeExporter.enabled }}
+    # node-exporter - Node-level metrics
+    # Provides metrics like:
+    # - node_cpu_seconds_total
+    # - node_memory_MemTotal_bytes
+    # - node_memory_MemAvailable_bytes
+    # - node_filesystem_size_bytes
+    # - node_network_receive_bytes_total
+    - job_name: 'node-exporter'
+      kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names:
+          - {{ .Values.global.namespace }}
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: node-exporter
+      - source_labels: [__meta_kubernetes_endpoint_node_name]
+        action: replace
+        target_label: instance
+    {{- end }}
+
+    # cAdvisor (kubelet) - Container metrics
+    # Provides metrics like:
+    # - container_memory_working_set_bytes
+    # - container_cpu_usage_seconds_total
+    # - container_network_receive_bytes_total
+    # - container_network_transmit_bytes_total
+    # - container_fs_usage_bytes
+    - job_name: 'kubernetes-cadvisor'
+      kubernetes_sd_configs:
+      - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+      - source_labels: [__meta_kubernetes_node_name]
+        action: replace
+        target_label: instance
+
     # Kubernetes API server
     - job_name: 'kubernetes-apiservers'
       kubernetes_sd_configs:

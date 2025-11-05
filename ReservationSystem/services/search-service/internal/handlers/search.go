@@ -31,7 +31,7 @@ type Hotel struct {
 	Amenities      []string `json:"amenities" bson:"amenities"`
 	Images         []string `json:"images" bson:"images"`
 	TotalRooms     int      `json:"total_rooms" bson:"total_rooms"`
-	AvailableRooms int      `json:"available_rooms" bson:"rooms_available"`
+	AvailableRooms int      `json:"available_rooms" bson:"available_rooms"`
 }
 
 type Room struct {

@@ -1,0 +1,174 @@
+{{- if and .Values.nginxExporters.enabled .Values.ingressController.enabled }}
+---
+# ConfigMap for Nginx Log Exporter
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-log-exporter-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: nginx-log-exporter
+data:
+  config.yml: |
+    listen:
+      port: 4040
+      address: "0.0.0.0"
+
+    consul:
+      enable: false
+
+    namespaces:
+      - name: nginx
+        format: "$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\""
+        source:
+          files:
+            - /var/log/nginx/access.log
+        namespace_label: nginx
+        histogram_buckets: [.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10]
+
+---
+# Deployment for Nginx Exporters (both metrics and log exporters)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-exporters
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: nginx-exporters
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx-exporters
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx-exporters
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9113"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: nginx-exporters
+      containers:
+      {{- if .Values.nginxExporters.metricsExporter.enabled }}
+      # Nginx Prometheus Exporter - scrapes stub_status
+      - name: metrics-exporter
+        image: {{ .Values.nginxExporters.metricsExporter.image.repository }}:{{ .Values.nginxExporters.metricsExporter.image.tag }}
+        imagePullPolicy: {{ .Values.nginxExporters.metricsExporter.image.pullPolicy }}
+        args:
+          - -nginx.scrape-uri={{ .Values.nginxExporters.metricsExporter.scrapeUri }}
+        ports:
+        - name: metrics
+          containerPort: {{ .Values.nginxExporters.metricsExporter.port }}
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+      {{- end }}
+
+      {{- if .Values.nginxExporters.logExporter.enabled }}
+      # Nginx Log Exporter - parses access logs
+      - name: log-exporter
+        image: {{ .Values.nginxExporters.logExporter.image.repository }}:{{ .Values.nginxExporters.logExporter.image.tag }}
+        imagePullPolicy: {{ .Values.nginxExporters.logExporter.image.pullPolicy }}
+        args:
+          - -config-file=/etc/prometheus-nginxlog-exporter/config.yml
+        ports:
+        - name: log-metrics
+          containerPort: {{ .Values.nginxExporters.logExporter.port }}
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus-nginxlog-exporter
+        - name: nginx-logs
+          mountPath: /var/log/nginx
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: log-metrics
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: log-metrics
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+      {{- end }}
+
+      volumes:
+      - name: config
+        configMap:
+          name: nginx-log-exporter-config
+      - name: nginx-logs
+        emptyDir: {}
+
+---
+# Service for Nginx Exporters
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-exporters
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: nginx-exporters
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9113"
+spec:
+  type: ClusterIP
+  ports:
+  {{- if .Values.nginxExporters.metricsExporter.enabled }}
+  - name: metrics
+    port: {{ .Values.nginxExporters.metricsExporter.port }}
+    targetPort: metrics
+    protocol: TCP
+  {{- end }}
+  {{- if .Values.nginxExporters.logExporter.enabled }}
+  - name: log-metrics
+    port: {{ .Values.nginxExporters.logExporter.port }}
+    targetPort: log-metrics
+    protocol: TCP
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: nginx-exporters
+
+---
+# ServiceAccount for Nginx Exporters
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-exporters
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "hotel-reservation.labels" . | nindent 4 }}
+    app.kubernetes.io/name: nginx-exporters
+{{- end }}
