@@ -19,6 +19,9 @@ data:
   API_URL: "http://{{ .Values.gateway.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.gateway.service.port }}"
   {{- end }}
 
+  # Gateway URL for server-side API proxy (Next.js API routes)
+  GATEWAY_URL: "http://{{ .Values.gateway.name }}.{{ .Values.global.namespace }}.svc.cluster.local:{{ .Values.gateway.service.port }}"
+
   # Application configuration
   {{- range $key, $value := .Values.frontend.env }}
   {{ $key }}: {{ $value | quote }}

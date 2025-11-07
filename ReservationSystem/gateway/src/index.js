@@ -329,8 +329,9 @@ app.use("/search", proxy(SEARCH_SERVICE_URL, {
   }
 }));
 
-app.use("/booking", verifyToken, proxy(BOOKING_SERVICE_URL, {
-  proxyReqPathResolver: (req) => {
+// Booking service routes - using manual proxy to avoid express-http-proxy issues
+app.use("/booking", verifyToken, async (req, res, next) => {
+  try {
     // FastAPI requires trailing slash for routes
     let path = req.url;
     // Add trailing slash for collection endpoints
@@ -341,23 +342,42 @@ app.use("/booking", verifyToken, proxy(BOOKING_SERVICE_URL, {
         path = path.replace('/bookings?', '/bookings/?');
       }
     }
-    return path;
-  },
-  proxyReqOptDecorator: (proxyReqOpts, srcReq) => {
-    // Forward user info as headers
-    proxyReqOpts.headers['X-User-Id'] = srcReq.user.id.toString();
-    proxyReqOpts.headers['X-User-Role'] = srcReq.user.role;
-    return proxyReqOpts;
-  },
-  userResDecorator: (proxyRes, proxyResData, userReq, userRes) => {
-    // Handle redirects by following them
-    if (proxyRes.statusCode === 307 || proxyRes.statusCode === 308) {
-      // Return empty array for now - the path should be fixed to avoid redirects
-      return proxyResData;
+
+    const url = `${BOOKING_SERVICE_URL}${path}`;
+    console.log(`📡 Proxying ${req.method} ${req.url} -> ${url}`);
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-User-Id': req.user.id.toString(),
+      'X-User-Role': req.user.role
+    };
+
+    const options = {
+      method: req.method,
+      headers: headers
+    };
+
+    // Add body for POST/PUT/PATCH requests
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+      options.body = JSON.stringify(req.body);
     }
-    return proxyResData;
+
+    const response = await fetch(url, options);
+    const data = await response.text();
+
+    // Set response status and headers
+    res.status(response.status);
+    response.headers.forEach((value, key) => {
+      res.setHeader(key, value);
+    });
+
+    // Send response
+    res.send(data);
+  } catch (error) {
+    console.error('❌ Booking proxy error:', error.message);
+    res.status(500).json({ error: 'Failed to connect to booking service', details: error.message });
   }
-}));
+});
 
 app.use("/payment", paymentLimiter, proxy(PAYMENT_SERVICE_URL, {
   proxyReqPathResolver: (req) => {

@@ -89,7 +89,7 @@ spec:
         - /bin/sh
         - -c
         - |
-          until nc -z hotel-reservation-kafka 9092; do
+          until nc -z {{ .Release.Name }}-kafka 9092; do
             echo "Waiting for Kafka to be ready..."
             sleep 2
           done

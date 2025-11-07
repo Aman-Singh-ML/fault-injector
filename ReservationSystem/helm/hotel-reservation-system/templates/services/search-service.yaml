@@ -16,7 +16,11 @@ data:
   REDIS_HOST: {{ .Values.redis.name | quote }}
   REDIS_PORT: {{ .Values.redis.service.port | quote }}
   REDIS_URL: {{ include "hotel-reservation.redisUrl" (dict "host" .Values.redis.name "port" .Values.redis.service.port) | quote }}
-  
+
+  # Kafka configuration
+  KAFKA_BROKER: {{ include "hotel-reservation.kafkaBootstrapServers" . | quote }}
+  NOTIFICATION_KAFKA_BROKER: {{ include "hotel-reservation.kafkaBootstrapServers" . | quote }}
+
   # Application configuration
   {{- range $key, $value := .Values.searchService.env }}
   {{ $key }}: {{ $value | quote }}

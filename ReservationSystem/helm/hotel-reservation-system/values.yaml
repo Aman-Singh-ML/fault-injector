@@ -1,15 +1,18 @@
 # Global configuration
 global:
   # Kubernetes namespace
-  namespace: hotel-reservation
+  namespace: hotel-reserve-dummy
   
   # Image registry and pull policy
-  imageRegistry: ""
+  imageRegistry: ""  # Empty for local Minikube images
   imagePullSecrets: []
-  imagePullPolicy: Always
+  imagePullPolicy: Never  # Never pull - use only local Minikube images
+  # imageRegistry: docker.io  # Commented out for Minikube - using local images
+  imageRepository: amrita0909  # Change to your Docker Hub username
+  imageTag: latest
   
   # Storage configuration
-  storageClass: "managed-csi"
+  storageClass: "standard"  # Changed from managed-csi to standard for Minikube
   
   # Security context
   securityContext:
@@ -373,9 +376,9 @@ frontend:
   replicaCount: 1
 
   image:
-    repository: amansingh2708/hotel-frontend
+    repository: hotel-frontend
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Never  # Use local Minikube images
 
   service:
     type: ClusterIP
@@ -422,9 +425,9 @@ gateway:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/hotel-gateway
+    repository: hotel-gateway
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Never  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -473,9 +476,9 @@ authService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/hotel-auth-service
+    repository: hotel-auth-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Never  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -525,9 +528,9 @@ searchService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/hotel-search-service
+    repository: hotel-search-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Never  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -574,9 +577,9 @@ bookingService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/hotel-booking-service
+    repository: hotel-booking-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Never  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -623,9 +626,9 @@ paymentService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/hotel-payment-service
+    repository: hotel-payment-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Never  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -672,9 +675,9 @@ notificationService:
   replicaCount: 1
   
   image:
-    repository: amansingh2708/hotel-notification-service
+    repository: hotel-notification-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Never  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -788,7 +791,7 @@ postgresBooking:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -832,7 +835,7 @@ postgresPayment:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -876,7 +879,7 @@ mongodb:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -914,7 +917,7 @@ redis:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -953,7 +956,7 @@ rabbitmq:
   # Storage configuration
   persistence:
     enabled: true
-    storageClass: "managed-csi"
+    storageClass: "standard"
     size: 1Gi
     accessModes:
       - ReadWriteOnce
@@ -987,7 +990,7 @@ kafka:
     replicaCount: 3
     persistence:
       enabled: true
-      storageClass: "managed-csi"
+      storageClass: "standard"
       size: 1Gi
     resources:
       limits:
