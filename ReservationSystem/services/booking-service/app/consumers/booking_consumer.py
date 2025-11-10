@@ -46,6 +46,7 @@ class BookingRequestConsumer:
                 auto_offset_reset='earliest',
                 enable_auto_commit=True,
                 max_poll_records=100,
+                fetch_max_bytes=5*1024,
                 session_timeout_ms=10000,
                 request_timeout_ms=15000,
                 connections_max_idle_ms=30000,

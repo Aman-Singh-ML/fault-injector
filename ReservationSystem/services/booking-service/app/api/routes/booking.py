@@ -14,6 +14,7 @@ from app.utils.availability_cache import (
     invalidate_availability_cache,
     get_availability_stats
 )
+from app.utils.cache import get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +164,20 @@ async def get_user_bookings(
     if not x_user_id:
         raise HTTPException(status_code=401, detail="User ID not provided")
 
+    conn = None
     try:
         logger.info(f"📨 Fetching bookings for user: {x_user_id}")
+
+        # Try cache first
+        cache = get_cache()
+        if cache:
+            cache_key = f"bookings:user:{x_user_id}" if x_user_role != 'ADMIN' else "bookings:all"
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                logger.info(f"✅ [BOOKINGS] Cache hit for key: {cache_key}")
+                return cached_data
+            logger.info(f"⚠️  [BOOKINGS] Cache miss for key: {cache_key}")
+
         conn = await get_db_connection()
         logger.info(f"✅ Connected to database")
 
@@ -211,17 +224,24 @@ async def get_user_bookings(
                 "updatedAt": row['updated_at'].isoformat()
             })
 
+        # Cache the result (30 minutes TTL)
+        if cache:
+            cache_key = f"bookings:user:{x_user_id}" if x_user_role != 'ADMIN' else "bookings:all"
+            cache.set(cache_key, bookings, ttl=1800)
+            logger.info(f"✅ [BOOKINGS] Cached with key: {cache_key}")
+
         logger.info(f"✅ Returning {len(bookings)} bookings")
         return bookings
     except Exception as e:
         logger.error(f"❌ Error fetching bookings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching bookings: {str(e)}")
     finally:
-        try:
-            await conn.close()
-            logger.info("✅ Connection closed")
-        except Exception as e:
-            logger.error(f"❌ Error closing connection: {e}")
+        if conn:
+            try:
+                await conn.close()
+                logger.info("✅ Connection closed")
+            except Exception as e:
+                logger.error(f"❌ Error closing connection: {e}")
 
 @router.get("/{booking_id}", response_model=BookingResponse)
 async def get_booking(
@@ -234,6 +254,19 @@ async def get_booking(
 
     if not x_user_id:
         raise HTTPException(status_code=401, detail="User ID not provided")
+
+    # Try cache first
+    cache = get_cache()
+    cache_key = f"booking:{booking_id}"
+    if cache:
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            # Verify ownership from cached data
+            if x_user_role != 'ADMIN' and str(cached_data.get('userId')) != x_user_id:
+                raise HTTPException(status_code=403, detail="Access denied - not your booking")
+            logger.info(f"✅ [BOOKING DETAILS] Cache hit for booking ID: {booking_id}")
+            return cached_data
+        logger.info(f"⚠️  [BOOKING DETAILS] Cache miss for booking ID: {booking_id}")
 
     conn = await get_db_connection()
     try:
@@ -252,7 +285,7 @@ async def get_booking(
         if x_user_role != 'ADMIN' and str(row['user_id']) != x_user_id:
             raise HTTPException(status_code=403, detail="Access denied - not your booking")
 
-        return {
+        booking_data = {
             "id": str(row['id']),
             "userId": str(row['user_id']),
             "hotelId": str(row['hotel_id']),
@@ -270,6 +303,13 @@ async def get_booking(
             "createdAt": row['created_at'].isoformat(),
             "updatedAt": row['updated_at'].isoformat()
         }
+
+        # Cache the result (1 hour TTL)
+        if cache:
+            cache.set(cache_key, booking_data, ttl=3600)
+            logger.info(f"✅ [BOOKING DETAILS] Cached booking with key: {cache_key}")
+
+        return booking_data
     finally:
         await conn.close()
 
@@ -394,6 +434,14 @@ async def confirm_booking(booking_id: str, confirm_data: BookingConfirm):
             "createdAt": row['created_at'].isoformat(),
             "updatedAt": row['updated_at'].isoformat()
         }
+
+        # Invalidate cache for this booking
+        cache = get_cache()
+        if cache:
+            cache.delete(f"booking:{booking_id}")
+            cache.delete(f"bookings:user:{confirmed_booking['userId']}")
+            cache.delete("bookings:all")
+            logger.info(f"✅ [BOOKING CONFIRM] Cache invalidated for booking {booking_id}")
 
         # Publish to Kafka (optional)
         publish_event('booking-events', {

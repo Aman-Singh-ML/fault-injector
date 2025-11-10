@@ -15,6 +15,7 @@ from app.api.routes import booking, admin
 from app.tracing import init_tracing
 from app.consumers import start_booking_consumer, stop_booking_consumer
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from app.utils.cache import init_cache, get_cache
 
 # Initialize tracing
 init_tracing("booking-service")
@@ -111,6 +112,9 @@ async def startup_event():
         redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
         redis_client.ping()
         print(f"✅ Connected to Redis at {redis_host}:{redis_port}")
+        init_cache(redis_client)
+        print(f"✅ Booking cache initialized")
+
     except Exception as e:
         print(f"⚠️  Warning: Could not connect to Redis: {e}")
         redis_client = None
@@ -125,6 +129,9 @@ async def startup_event():
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
+    cache = get_cache()
+    if cache:
+        cache.print_stats()
     stop_booking_consumer()
 
 

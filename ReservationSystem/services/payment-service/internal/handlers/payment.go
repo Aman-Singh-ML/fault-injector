@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hotel/payment-service/internal/cache"
+
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	_ "github.com/lib/pq"
@@ -17,10 +20,16 @@ import (
 )
 
 var redisClient *redis.Client
+var paymentCache *cache.RedisCache
 
 // SetRedisClient sets the Redis client for payment handlers
 func SetRedisClient(client *redis.Client) {
 	redisClient = client
+}
+
+// SetCache sets the cache for payment handlers
+func SetCache(c *cache.RedisCache) {
+	paymentCache = c
 }
 
 // FlexibleString can unmarshal both string and number
@@ -277,6 +286,18 @@ func VerifyOTP(c *gin.Context) {
 
 	fmt.Printf("✅ Payment completed: ID=%d, TXN=%s\n", payment.ID, txnID)
 
+	// Invalidate cache
+	if paymentCache != nil {
+		ctx := context.Background()
+		paymentKey := fmt.Sprintf("payment:%d", payment.ID)
+		bookingKey := fmt.Sprintf("payment:booking:%d", payment.BookingID)
+		if err := paymentCache.Delete(ctx, paymentKey, bookingKey); err != nil {
+			fmt.Printf("⚠️  [VERIFY OTP] Failed to invalidate cache: %v\n", err)
+		} else {
+			fmt.Printf("✅ [VERIFY OTP] Invalidated cache for payment ID: %d and booking ID: %d\n", payment.ID, payment.BookingID)
+		}
+	}
+
 	// Publish success event to RabbitMQ
 	publishPaymentEvent("payment.success", map[string]interface{}{
 		"paymentId":     payment.ID,
@@ -293,6 +314,19 @@ func VerifyOTP(c *gin.Context) {
 // GetPaymentStatus retrieves payment status
 func GetPaymentStatus(c *gin.Context) {
 	id := c.Param("id")
+	ctx := context.Background()
+
+	// Try cache first
+	if paymentCache != nil {
+		cacheKey := fmt.Sprintf("payment:%s", id)
+		var cachedPayment Payment
+		if err := paymentCache.Get(ctx, cacheKey, &cachedPayment); err == nil {
+			fmt.Printf("✅ [PAYMENT STATUS] Cache hit for payment ID: %s\n", id)
+			c.JSON(http.StatusOK, cachedPayment)
+			return
+		}
+		fmt.Printf("⚠️  [PAYMENT STATUS] Cache miss for payment ID: %s\n", id)
+	}
 
 	var payment Payment
 	var transactionID sql.NullString
@@ -317,12 +351,35 @@ func GetPaymentStatus(c *gin.Context) {
 		payment.TransactionID = transactionID.String
 	}
 
+	// Cache the result (1 hour TTL)
+	if paymentCache != nil {
+		cacheKey := fmt.Sprintf("payment:%s", id)
+		if err := paymentCache.Set(ctx, cacheKey, payment, 1*time.Hour); err != nil {
+			fmt.Printf("⚠️  [PAYMENT STATUS] Failed to cache payment: %v\n", err)
+		} else {
+			fmt.Printf("✅ [PAYMENT STATUS] Cached payment with key: %s\n", cacheKey)
+		}
+	}
+
 	c.JSON(http.StatusOK, payment)
 }
 
 // GetPaymentByBooking retrieves payment by booking ID
 func GetPaymentByBooking(c *gin.Context) {
 	bookingID := c.Param("bookingId")
+	ctx := context.Background()
+
+	// Try cache first
+	if paymentCache != nil {
+		cacheKey := fmt.Sprintf("payment:booking:%s", bookingID)
+		var cachedPayment Payment
+		if err := paymentCache.Get(ctx, cacheKey, &cachedPayment); err == nil {
+			fmt.Printf("✅ [PAYMENT BY BOOKING] Cache hit for booking ID: %s\n", bookingID)
+			c.JSON(http.StatusOK, cachedPayment)
+			return
+		}
+		fmt.Printf("⚠️  [PAYMENT BY BOOKING] Cache miss for booking ID: %s\n", bookingID)
+	}
 
 	var payment Payment
 	var transactionID sql.NullString
@@ -347,6 +404,16 @@ func GetPaymentByBooking(c *gin.Context) {
 
 	if transactionID.Valid {
 		payment.TransactionID = transactionID.String
+	}
+
+	// Cache the result (1 hour TTL)
+	if paymentCache != nil {
+		cacheKey := fmt.Sprintf("payment:booking:%s", bookingID)
+		if err := paymentCache.Set(ctx, cacheKey, payment, 1*time.Hour); err != nil {
+			fmt.Printf("⚠️  [PAYMENT BY BOOKING] Failed to cache payment: %v\n", err)
+		} else {
+			fmt.Printf("✅ [PAYMENT BY BOOKING] Cached payment with key: %s\n", cacheKey)
+		}
 	}
 
 	c.JSON(http.StatusOK, payment)

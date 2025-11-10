@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -12,6 +14,7 @@ import (
 	"github.com/hotel/payment-service/internal/handlers"
 	"github.com/hotel/payment-service/internal/tracing"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/hotel/payment-service/internal/cache"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -75,6 +78,23 @@ func main() {
 	// Set Redis client in handlers
 	handlers.SetRedisClient(redisClient)
 
+
+	// Initialize cache
+	paymentCache := cache.NewRedisCache(redisAddr)
+	handlers.SetCache(paymentCache)
+	log.Println("✅ Payment cache initialized")
+
+	// Setup graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		log.Println("🛑 Shutting down payment service...")
+		paymentCache.PrintStats(context.Background())
+		paymentCache.Close()
+		os.Exit(0)
+	}()
+
 	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.Default()
@@ -114,6 +134,13 @@ func main() {
 	router.GET("/admin/payments/recent", handlers.GetRecentPayments)
 	router.GET("/admin/payments/user/:userId", handlers.GetPaymentsByUser)
 
+	// Cache management routes
+	router.GET("/admin/cache/stats", handlers.GetCacheStats)
+	router.GET("/admin/cache/keys", handlers.GetCacheKeys)
+	router.POST("/admin/cache/flush", handlers.FlushCache)
+	router.DELETE("/admin/cache/keys/:key", handlers.DeleteCacheKey)
+	router.GET("/admin/cache/print-stats", handlers.PrintCacheStats)
+	
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8082"

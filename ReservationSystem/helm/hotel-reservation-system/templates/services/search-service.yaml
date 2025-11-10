@@ -15,6 +15,7 @@ data:
   # Redis configuration
   REDIS_HOST: {{ .Values.redis.name | quote }}
   REDIS_PORT: {{ .Values.redis.service.port | quote }}
+  REDIS_ADDR: {{ printf "%s:%v" .Values.redis.name (.Values.redis.service.port | int) | quote }}
   REDIS_URL: {{ include "hotel-reservation.redisUrl" (dict "host" .Values.redis.name "port" .Values.redis.service.port) | quote }}
 
   # Kafka configuration

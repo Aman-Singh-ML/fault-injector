@@ -24,10 +24,10 @@ app.use(metricsMiddleware);
 // RATE LIMITING CONFIGURATION
 // ============================================
 
-// General API rate limiter - 100 requests per 15 minutes per IP
+// General API rate limiter - 100000 requests per 15 minutes per IP
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 100000, // Limit each IP to 100000 requests per windowMs
   message: {
     error: 'Too many requests from this IP, please try again later.',
     retryAfter: '15 minutes'
@@ -36,10 +36,10 @@ const generalLimiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 
-// Strict rate limiter for auth endpoints - 5 requests per 15 minutes
+// Strict rate limiter for auth endpoints - 100000 requests per 15 minutes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 100000,
   message: {
     error: 'Too many authentication attempts, please try again later.',
     retryAfter: '15 minutes'
@@ -47,20 +47,20 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: true, // Don't count successful requests
 });
 
-// Payment rate limiter - 10 requests per 15 minutes
+// Payment rate limiter - 100000 requests per 15 minutes
 const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 100000,
   message: {
     error: 'Too many payment requests, please try again later.',
     retryAfter: '15 minutes'
   },
 });
 
-// Admin rate limiter - 50 requests per 15 minutes
+// Admin rate limiter - 100000 requests per 15 minutes
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 100000,
   message: {
     error: 'Too many admin requests, please try again later.',
     retryAfter: '15 minutes'
@@ -324,8 +324,27 @@ app.post("/bookings/create", verifyToken, proxy(SEARCH_SERVICE_URL, {
 
 app.use("/search", proxy(SEARCH_SERVICE_URL, {
   proxyReqPathResolver: (req) => {
-    // Gateway receives /search/hotels, we need to pass /search/hotels to the service
-    return `/search${req.url}`;
+    // Handle different route patterns:
+    // /search/hotels/:id/rooms -> /hotels/:id/rooms (search service route)
+    // /search/cache/stats -> /cache/stats (cache stats route)
+    // /search/hotels -> /search/hotels (standard search route)
+
+    const url = req.url;
+
+    // Route /search/hotels/:id/rooms to /hotels/:id/rooms
+    if (url.match(/^\/hotels\/[^\/]+\/rooms/)) {
+      console.log(`🔀 Routing ${url} to search service`);
+      return url;
+    }
+
+    // Route /search/cache/* to /cache/*
+    if (url.startsWith('/cache/')) {
+      console.log(`🔀 Routing ${url} to search service`);
+      return url;
+    }
+
+    // Default: pass /search/hotels to /search/hotels
+    return `/search${url}`;
   }
 }));
 
@@ -463,10 +482,10 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     circuitBreakers: circuitBreakerStatus,
     rateLimiting: {
-      general: "100 req/15min",
-      auth: "5 req/15min",
-      payment: "10 req/15min",
-      admin: "50 req/15min"
+      general: "100000 req/15min",
+      auth: "100000 req/15min",
+      payment: "100000 req/15min",
+      admin: "100000 req/15min"
     }
   });
 });

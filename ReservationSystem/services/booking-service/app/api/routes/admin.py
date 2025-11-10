@@ -3,6 +3,8 @@ from typing import Optional, List
 import asyncpg
 import os
 from datetime import datetime
+from app.utils.cache import get_cache
+
 
 router = APIRouter()
 
@@ -267,4 +269,50 @@ async def get_recent_bookings(
         }
     finally:
         await conn.close()
+
+# Cache Management Endpoints
+@router.get("/cache/stats")
+async def get_cache_stats():
+    """Get cache statistics"""
+    cache = get_cache()
+    if not cache:
+        raise HTTPException(status_code=503, detail="Cache not available")
+    return cache.get_stats()
+
+@router.get("/cache/keys")
+async def get_cache_keys():
+    """Get all cache keys"""
+    cache = get_cache()
+    if not cache:
+        raise HTTPException(status_code=503, detail="Cache not available")
+    keys = cache.get_all_keys()
+    return {"keys": keys, "count": len(keys)}
+
+@router.post("/cache/flush")
+async def flush_cache():
+    """Flush all cache"""
+    cache = get_cache()
+    if not cache:
+        raise HTTPException(status_code=503, detail="Cache not available")
+    success = cache.flush_all()
+    return {"success": success, "message": "Cache flushed" if success else "Failed to flush cache"}
+
+@router.delete("/cache/keys/{key:path}")
+async def delete_cache_key(key: str):
+    """Delete specific cache key"""
+    cache = get_cache()
+    if not cache:
+        raise HTTPException(status_code=503, detail="Cache not available")
+    success = cache.delete(key)
+    return {"success": success, "message": f"Key '{key}' deleted" if success else f"Key '{key}' not found"}
+
+@router.get("/cache/print-stats")
+async def print_cache_stats():
+    """Print cache statistics to console"""
+    cache = get_cache()
+    if not cache:
+        raise HTTPException(status_code=503, detail="Cache not available")
+    cache.print_stats()
+    return {"message": "Stats printed to console"}
+
 
