@@ -1,54 +1,52 @@
+{{- if .Values.redisCommander.enabled }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: redis-commander
-  namespace: {{ .Release.Namespace }}
+  name: {{ .Values.redisCommander.name }}
+  namespace: {{ .Values.global.namespace }}
   labels:
-    app: redis-commander
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.redisCommander.name "context" .) | nindent 4 }}
     component: infrastructure
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: redis-commander
+      {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.redisCommander.name "context" .) | nindent 6 }}
   template:
     metadata:
       labels:
-        app: redis-commander
+        {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.redisCommander.name "context" .) | nindent 8 }}
+        component: infrastructure
     spec:
       containers:
-      - name: redis-commander
-        image: rediscommander/redis-commander:latest
+      - name: {{ .Values.redisCommander.name }}
+        image: {{ .Values.redisCommander.image.repository }}:{{ .Values.redisCommander.image.tag }}
+        imagePullPolicy: {{ .Values.redisCommander.image.pullPolicy | default .Values.global.imagePullPolicy }}
         ports:
-        - containerPort: 8081
+        - containerPort: {{ .Values.redisCommander.service.targetPort }}
           name: http
         env:
         - name: REDIS_HOSTS
           value: "minikube:{{ .Values.redis.name }}:{{ .Values.redis.service.port }}"
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
+        {{- include "hotel-reservation.resources" .Values.redisCommander.resources | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: redis-commander
-  namespace: {{ .Release.Namespace }}
+  name: {{ .Values.redisCommander.name }}
+  namespace: {{ .Values.global.namespace }}
   labels:
-    app: redis-commander
+    {{- include "hotel-reservation.serviceLabels" (dict "serviceName" .Values.redisCommander.name "context" .) | nindent 4 }}
     component: infrastructure
 spec:
-  type: NodePort
+  type: {{ .Values.redisCommander.service.type }}
   ports:
-  - port: 8081
-    targetPort: 8081
-    nodePort: 30081
+  - port: {{ .Values.redisCommander.service.port }}
+    targetPort: {{ .Values.redisCommander.service.targetPort }}
     protocol: TCP
     name: http
   selector:
-    app: redis-commander
+    {{- include "hotel-reservation.serviceSelectorLabels" (dict "serviceName" .Values.redisCommander.name "context" .) | nindent 4 }}
+{{- end }}
 
