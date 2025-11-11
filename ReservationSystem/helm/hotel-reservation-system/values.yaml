@@ -4,9 +4,12 @@ global:
   namespace: hotel-reservation
   
   # Image registry and pull policy
-  imageRegistry: ""
+  imageRegistry: ""  # Empty for local Minikube images
   imagePullSecrets: []
-  imagePullPolicy: Always
+  imagePullPolicy: Never  # Never pull - use only local Minikube images
+  # imageRegistry: docker.io  # Commented out for Minikube - using local images
+  imageRepository: amansingh2708  # Change to your Docker Hub username
+  imageTag: amrita
   
   # Storage configuration
   storageClass: "managed-csi"
@@ -375,7 +378,7 @@ frontend:
   image:
     repository: amansingh2708/hotel-frontend
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Always  # Use local Minikube images
 
   service:
     type: ClusterIP
@@ -424,7 +427,7 @@ gateway:
   image:
     repository: amansingh2708/hotel-gateway
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Always  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -475,7 +478,7 @@ authService:
   image:
     repository: amansingh2708/hotel-auth-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Always  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -504,19 +507,19 @@ authService:
     httpGet:
       path: /actuator/health
       port: 8080
-    initialDelaySeconds: 60
+    initialDelaySeconds: 120
     periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-  
+    timeoutSeconds: 10
+    failureThreshold: 5
+
   readinessProbe:
     httpGet:
       path: /actuator/health
       port: 8080
-    initialDelaySeconds: 30
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 3
+    initialDelaySeconds: 90
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 5
 
 # Search Service (Go)
 searchService:
@@ -527,7 +530,7 @@ searchService:
   image:
     repository: amansingh2708/hotel-search-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Always  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -576,7 +579,7 @@ bookingService:
   image:
     repository: amansingh2708/hotel-booking-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Always  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -625,7 +628,7 @@ paymentService:
   image:
     repository: amansingh2708/hotel-payment-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Always  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -674,7 +677,7 @@ notificationService:
   image:
     repository: amansingh2708/hotel-notification-service
     tag: amrita
-    pullPolicy: Always
+    pullPolicy: Always  # Use local Minikube images
   
   service:
     type: ClusterIP
@@ -934,6 +937,29 @@ redis:
     maxmemory-policy: "allkeys-lru"
     save: "900 1 300 10 60 10000"
 
+# Redis Commander - Web UI for Redis
+redisCommander:
+  enabled: true
+  name: redis-commander
+
+  image:
+    repository: ghcr.io/joeferner/redis-commander
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8081
+    targetPort: 8081
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
 
 # RabbitMQ Message Broker
 rabbitmq:

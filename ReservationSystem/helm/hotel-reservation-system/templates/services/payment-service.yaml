@@ -15,14 +15,7 @@ data:
   DB_USER: {{ .Values.postgresPayment.database.user | quote }}
   DB_PASSWORD: {{ .Values.postgresPayment.database.password | quote }}
   DB_NAME: {{ .Values.postgresPayment.database.name | quote }}
-  
-  # RabbitMQ configuration
-  RABBITMQ_URL: {{ include "hotel-reservation.rabbitmqUrl" (dict "host" .Values.rabbitmq.name "port" .Values.rabbitmq.service.amqpPort "user" .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER "password" .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS) | quote }}
-  RABBITMQ_HOST: {{ .Values.rabbitmq.name | quote }}
-  RABBITMQ_PORT: {{ .Values.rabbitmq.service.amqpPort | quote }}
-  RABBITMQ_USER: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
-  RABBITMQ_PASSWORD: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
-  
+
   # Application configuration
   {{- range $key, $value := .Values.paymentService.env }}
   {{ $key }}: {{ $value | quote }}
@@ -69,22 +62,6 @@ spec:
             sleep 2
           done
           echo "PostgreSQL is ready!"
-      - name: wait-for-rabbitmq
-        image: busybox:1.35
-        command:
-        - /bin/sh
-        - -c
-        - |
-          until nc -z {{ .Values.rabbitmq.name }} {{ .Values.rabbitmq.service.amqpPort }}; do
-            echo "Waiting for RabbitMQ to be ready..."
-            sleep 2
-          done
-          echo "RabbitMQ is ready!"
-        env:
-        - name: RABBITMQ_DEFAULT_USER
-          value: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_USER | quote }}
-        - name: RABBITMQ_DEFAULT_PASS
-          value: {{ .Values.rabbitmq.config.RABBITMQ_DEFAULT_PASS | quote }}
       containers:
       - name: {{ .Values.paymentService.name }}
         image: {{ include "hotel-reservation.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.paymentService.image.repository "tag" .Values.paymentService.image.tag) }}

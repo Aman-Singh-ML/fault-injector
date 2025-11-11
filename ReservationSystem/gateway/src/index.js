@@ -24,10 +24,10 @@ app.use(metricsMiddleware);
 // RATE LIMITING CONFIGURATION
 // ============================================
 
-// General API rate limiter - 100 requests per 15 minutes per IP
+// General API rate limiter - 100000 requests per 15 minutes per IP
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 100000, // Limit each IP to 100000 requests per windowMs
   message: {
     error: 'Too many requests from this IP, please try again later.',
     retryAfter: '15 minutes'
@@ -36,10 +36,10 @@ const generalLimiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 
-// Strict rate limiter for auth endpoints - 5 requests per 15 minutes
+// Strict rate limiter for auth endpoints - 100000 requests per 15 minutes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 100000,
   message: {
     error: 'Too many authentication attempts, please try again later.',
     retryAfter: '15 minutes'
@@ -47,20 +47,20 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: true, // Don't count successful requests
 });
 
-// Payment rate limiter - 10 requests per 15 minutes
+// Payment rate limiter - 100000 requests per 15 minutes
 const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 100000,
   message: {
     error: 'Too many payment requests, please try again later.',
     retryAfter: '15 minutes'
   },
 });
 
-// Admin rate limiter - 50 requests per 15 minutes
+// Admin rate limiter - 100000 requests per 15 minutes
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 100000,
   message: {
     error: 'Too many admin requests, please try again later.',
     retryAfter: '15 minutes'
@@ -324,13 +324,33 @@ app.post("/bookings/create", verifyToken, proxy(SEARCH_SERVICE_URL, {
 
 app.use("/search", proxy(SEARCH_SERVICE_URL, {
   proxyReqPathResolver: (req) => {
-    // Gateway receives /search/hotels, we need to pass /search/hotels to the service
-    return `/search${req.url}`;
+    // Handle different route patterns:
+    // /search/hotels/:id/rooms -> /hotels/:id/rooms (search service route)
+    // /search/cache/stats -> /cache/stats (cache stats route)
+    // /search/hotels -> /search/hotels (standard search route)
+
+    const url = req.url;
+
+    // Route /search/hotels/:id/rooms to /hotels/:id/rooms
+    if (url.match(/^\/hotels\/[^\/]+\/rooms/)) {
+      console.log(`🔀 Routing ${url} to search service`);
+      return url;
+    }
+
+    // Route /search/cache/* to /cache/*
+    if (url.startsWith('/cache/')) {
+      console.log(`🔀 Routing ${url} to search service`);
+      return url;
+    }
+
+    // Default: pass /search/hotels to /search/hotels
+    return `/search${url}`;
   }
 }));
 
-app.use("/booking", verifyToken, proxy(BOOKING_SERVICE_URL, {
-  proxyReqPathResolver: (req) => {
+// Booking service routes - using manual proxy to avoid express-http-proxy issues
+app.use("/booking", verifyToken, async (req, res, next) => {
+  try {
     // FastAPI requires trailing slash for routes
     let path = req.url;
     // Add trailing slash for collection endpoints
@@ -341,23 +361,42 @@ app.use("/booking", verifyToken, proxy(BOOKING_SERVICE_URL, {
         path = path.replace('/bookings?', '/bookings/?');
       }
     }
-    return path;
-  },
-  proxyReqOptDecorator: (proxyReqOpts, srcReq) => {
-    // Forward user info as headers
-    proxyReqOpts.headers['X-User-Id'] = srcReq.user.id.toString();
-    proxyReqOpts.headers['X-User-Role'] = srcReq.user.role;
-    return proxyReqOpts;
-  },
-  userResDecorator: (proxyRes, proxyResData, userReq, userRes) => {
-    // Handle redirects by following them
-    if (proxyRes.statusCode === 307 || proxyRes.statusCode === 308) {
-      // Return empty array for now - the path should be fixed to avoid redirects
-      return proxyResData;
+
+    const url = `${BOOKING_SERVICE_URL}${path}`;
+    console.log(`📡 Proxying ${req.method} ${req.url} -> ${url}`);
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-User-Id': req.user.id.toString(),
+      'X-User-Role': req.user.role
+    };
+
+    const options = {
+      method: req.method,
+      headers: headers
+    };
+
+    // Add body for POST/PUT/PATCH requests
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+      options.body = JSON.stringify(req.body);
     }
-    return proxyResData;
+
+    const response = await fetch(url, options);
+    const data = await response.text();
+
+    // Set response status and headers
+    res.status(response.status);
+    response.headers.forEach((value, key) => {
+      res.setHeader(key, value);
+    });
+
+    // Send response
+    res.send(data);
+  } catch (error) {
+    console.error('❌ Booking proxy error:', error.message);
+    res.status(500).json({ error: 'Failed to connect to booking service', details: error.message });
   }
-}));
+});
 
 app.use("/payment", paymentLimiter, proxy(PAYMENT_SERVICE_URL, {
   proxyReqPathResolver: (req) => {
@@ -443,10 +482,10 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     circuitBreakers: circuitBreakerStatus,
     rateLimiting: {
-      general: "100 req/15min",
-      auth: "5 req/15min",
-      payment: "10 req/15min",
-      admin: "50 req/15min"
+      general: "100000 req/15min",
+      auth: "100000 req/15min",
+      payment: "100000 req/15min",
+      admin: "100000 req/15min"
     }
   });
 });

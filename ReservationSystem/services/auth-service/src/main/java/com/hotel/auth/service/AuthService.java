@@ -43,21 +43,26 @@ public class AuthService {
         
         return userRepository.save(user);
     }
-    
+
     public User login(String email, String password) throws Exception {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new Exception("User not found"));
+        try{
+                User user = getUserByEmail(email);
+                //.orElseThrow(() -> new Exception("User not found"));
         
-        if (!passwordEncoder.matches(password, user.getPassword())) {
-            throw new Exception("Invalid password");
-        }
-        
-        if (!user.isEnabled()) {
-            throw new Exception("Account is disabled");
-        }
-        
-        return user;
+                if (!passwordEncoder.matches(password, user.getPassword())) {
+                    throw new Exception("Invalid password");
+                }
+                
+                if (!user.isEnabled()) {
+                    throw new Exception("Account is disabled");
+                }
+                
+                return user;
+        }catch(Exception e){
+            throw new Exception(e);
+        }       
     }
+
     
     @Cacheable(value = "users", key = "#email")
     public User getUserByEmail(String email) throws Exception {

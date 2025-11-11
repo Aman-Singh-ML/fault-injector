@@ -210,7 +210,7 @@ redis://{{ $host }}:{{ $port }}
 Generate Kafka bootstrap servers (using Bitnami Kafka chart service name)
 */}}
 {{- define "hotel-reservation.kafkaBootstrapServers" -}}
-hotel-reservation-kafka:9092
+{{ .Release.Name }}-kafka:9092
 {{- end }}
 
 {{/*

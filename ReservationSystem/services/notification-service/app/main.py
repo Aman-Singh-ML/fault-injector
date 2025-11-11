@@ -15,6 +15,7 @@ import time
 import redis
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from app.tracing import init_tracing
+from app.utils.cache import init_cache, get_cache
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # Initialize tracing
@@ -105,8 +106,9 @@ app.add_middleware(
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://admin:admin@localhost:27017")
+MONGO_DATABASE = os.getenv("MONGO_DATABASE", "hotel_db")
 mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
-db = mongo_client.hotel_db
+db = mongo_client[MONGO_DATABASE]
 notifications_collection = db.notifications
 
 # Redis connection for notification service (port 6384)
@@ -258,12 +260,57 @@ def consume_kafka_events_sync():
                     # Save to MongoDB (sync version)
                     import pymongo
                     sync_client = pymongo.MongoClient(MONGO_URI)
-                    sync_db = sync_client.hotel_db
+                    sync_db = sync_client[MONGO_DATABASE]
                     sync_collection = sync_db.notifications
 
                     result = sync_collection.insert_one(notification)
                     notification['_id'] = str(result.inserted_id)
+                    notification['createdAt'] = notification['createdAt'].isoformat()
                     print(f"✅ Notification saved to MongoDB: {notification['_id']}")
+
+                    # Update cache with new notification
+                    cache = get_cache()
+                    if cache:
+                        user_id = notification.get('userId')
+                        cache_key = f"notifications:user:{user_id}"
+
+                        # Get existing cached data
+                        cached_data = cache.get(cache_key)
+
+                        if cached_data:
+                            # Add new notification to the beginning of the list
+                            cached_data['notifications'].insert(0, notification)
+                            # Keep only the latest 50 notifications
+                            cached_data['notifications'] = cached_data['notifications'][:50]
+                            # Update unread count
+                            cached_data['unreadCount'] = cached_data['unreadCount'] + 1
+
+                            # Update cache with new data
+                            cache.set(cache_key, cached_data, ttl=900)
+                            print(f"✅ [NEW NOTIFICATION] Updated cache for user: {user_id} (added to existing cache)")
+                        else:
+                            # Cache doesn't exist, fetch all notifications from DB and cache them
+                            all_notifications = list(sync_collection.find(
+                                {'userId': str(user_id)}
+                            ).sort('createdAt', -1).limit(50))
+
+                            # Convert ObjectId to string for all notifications
+                            for notif in all_notifications:
+                                notif['_id'] = str(notif['_id'])
+                                if hasattr(notif['createdAt'], 'isoformat'):
+                                    notif['createdAt'] = notif['createdAt'].isoformat()
+
+                            unread_count = sync_collection.count_documents(
+                                {'userId': str(user_id), 'read': False}
+                            )
+
+                            new_cache_data = {
+                                'notifications': all_notifications,
+                                'unreadCount': unread_count
+                            }
+
+                            cache.set(cache_key, new_cache_data, ttl=900)
+                            print(f"✅ [NEW NOTIFICATION] Created cache for user: {user_id} (fetched all from DB)")
 
                     # Record successful Kafka message processing
                     duration = time.time() - start_time
@@ -291,6 +338,10 @@ async def startup_event():
         redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
         redis_client.ping()
         print(f"✅ Connected to Redis at {redis_host}:{redis_port}")
+
+        # Initialize cache utility
+        init_cache(redis_client)
+        print(f"✅ Notification cache initialized")
     except Exception as e:
         print(f"⚠️  Warning: Could not connect to Redis: {e}")
         redis_client = None
@@ -304,6 +355,11 @@ async def startup_event():
 async def shutdown_event():
     if kafka_consumer_task:
         kafka_consumer_task.cancel()
+
+    # Print cache statistics
+    cache = get_cache()
+    if cache:
+        cache.print_stats()
 
 @app.get("/health")
 async def health_check():
@@ -323,6 +379,16 @@ async def get_notifications(request: Request):
         if not user_id:
             return {'notifications': [], 'unreadCount': 0, 'error': 'userId required'}
 
+        # Try cache first
+        cache = get_cache()
+        if cache:
+            cache_key = f"notifications:user:{user_id}"
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                print(f"✅ [NOTIFICATIONS] Cache hit for user: {user_id}")
+                return cached_data
+            print(f"⚠️  [NOTIFICATIONS] Cache miss for user: {user_id}")
+
         notifications = await notifications_collection.find(
             {'userId': str(user_id)}
         ).sort('createdAt', -1).limit(50).to_list(50)
@@ -336,10 +402,18 @@ async def get_notifications(request: Request):
             {'userId': str(user_id), 'read': False}
         )
 
-        return {
+        result = {
             'notifications': notifications,
             'unreadCount': unread_count
         }
+
+        # Cache the result (15 minutes TTL)
+        if cache:
+            cache_key = f"notifications:user:{user_id}"
+            cache.set(cache_key, result, ttl=900)
+            print(f"✅ [NOTIFICATIONS] Cached with key: {cache_key}")
+
+        return result
     except Exception as e:
         print(f"❌ Error fetching notifications: {e}")
         return {'notifications': [], 'unreadCount': 0}
@@ -349,10 +423,23 @@ async def mark_notification_read(notification_id: str):
     """Mark a notification as read"""
     try:
         from bson import ObjectId
+
+        # Get the notification to find the user_id
+        notification = await notifications_collection.find_one({'_id': ObjectId(notification_id)})
+
         result = await notifications_collection.update_one(
             {'_id': ObjectId(notification_id)},
             {'$set': {'read': True}}
         )
+
+        # Invalidate cache for this user
+        if notification and result.modified_count > 0:
+            cache = get_cache()
+            if cache:
+                user_id = notification.get('userId')
+                cache_key = f"notifications:user:{user_id}"
+                cache.delete(cache_key)
+                print(f"✅ [MARK READ] Invalidated cache for user: {user_id}")
 
         return {'success': result.modified_count > 0}
     except Exception as e:
@@ -391,6 +478,14 @@ async def mark_all_notifications_read_post(request: Request):
             {'userId': str(user_id), 'read': False},
             {'$set': {'read': True}}
         )
+
+        # Invalidate cache for this user
+        if result.modified_count > 0:
+            cache = get_cache()
+            if cache:
+                cache_key = f"notifications:user:{user_id}"
+                cache.delete(cache_key)
+                print(f"✅ [MARK ALL READ] Invalidated cache for user: {user_id}")
 
         return {'success': True, 'count': result.modified_count}
     except Exception as e:
@@ -536,6 +631,79 @@ async def get_recent_notifications(limit: int = 10):
     except Exception as e:
         print(f"❌ Error fetching recent notifications: {e}")
         return {'notifications': [], 'count': 0}
+
+# ============================================
+# CACHE MANAGEMENT ENDPOINTS
+# ============================================
+
+@app.get("/admin/cache/stats")
+async def get_cache_stats():
+    """Get cache statistics"""
+    cache = get_cache()
+    if not cache:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Cache not available"}
+        )
+    return cache.get_stats()
+
+@app.get("/admin/cache/keys")
+async def get_cache_keys():
+    """Get all cache keys"""
+    cache = get_cache()
+    if not cache:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Cache not available"}
+        )
+    keys = cache.get_all_keys()
+    return {"keys": keys, "count": len(keys)}
+
+@app.post("/admin/cache/flush")
+async def flush_cache():
+    """Flush all cache"""
+    cache = get_cache()
+    if not cache:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Cache not available"}
+        )
+    success = cache.flush_all()
+    return {
+        "success": success,
+        "message": "Cache flushed" if success else "Failed to flush cache"
+    }
+
+@app.delete("/admin/cache/keys/{key}")
+async def delete_cache_key(key: str):
+    """Delete a specific cache key"""
+    cache = get_cache()
+    if not cache:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Cache not available"}
+        )
+    success = cache.delete(key)
+    return {
+        "success": success,
+        "message": "Cache key deleted" if success else "Failed to delete cache key",
+        "key": key
+    }
+
+@app.get("/admin/cache/print-stats")
+async def print_cache_stats():
+    """Print cache statistics to console"""
+    cache = get_cache()
+    if not cache:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Cache not available"}
+        )
+    cache.print_stats()
+    return {
+        "success": True,
+        "message": "Cache stats printed to console"
+    }
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8083, reload=True)

@@ -87,6 +87,16 @@ func main() {
 	redisCache := cache.NewRedisCache(redisAddr)
 	handlers.SetRedisCache(redisCache)
 	log.Printf("✅ Connected to Redis at %s", redisAddr)
+	defer redisCache.Close() // Print final stats and close connection on shutdown
+
+	// Print cache stats every 5 minutes
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			redisCache.PrintStats()
+		}
+	}()
 
 	// Initialize Kafka producer
 	if err := kafka.InitProducer(); err != nil {
@@ -133,6 +143,13 @@ func main() {
 	router.GET("/admin/hotels/stats", handlers.GetHotelsStats)
 	router.GET("/admin/hotels/by-city", handlers.GetHotelsByCity)
 	router.GET("/admin/hotels/top-rated", handlers.GetTopRatedHotels)
+
+	// Cache management routes
+	router.GET("/cache/stats", handlers.GetCacheStats)
+	router.GET("/cache/keys", handlers.GetCacheKeys)
+	router.POST("/cache/flush", handlers.FlushCache)
+	router.DELETE("/cache/keys/:key", handlers.DeleteCacheKey)
+	router.GET("/cache/print-stats", handlers.PrintCacheStats)
 
 	// Start server
 	port := os.Getenv("PORT")
